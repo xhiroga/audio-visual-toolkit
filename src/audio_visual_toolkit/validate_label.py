@@ -1,27 +1,65 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable
 
 from .constants import PHONEMES_JA_JP
 
 
-def _parse_lines(lines: Iterable[str]) -> list[tuple[str, str, str]]:
-    parsed: list[tuple[str, str, str]] = []
-    for raw in lines:
+logger = logging.getLogger(__name__)
+
+
+class _Entry(tuple):
+    # (lineno, raw, parts_ok, digits_ok, phoneme_ok, start, end, phoneme)
+    __slots__ = ()
+    lineno: int
+    raw: str
+    parts_ok: bool
+    digits_ok: bool
+    phoneme_ok: bool
+    start: str | None
+    end: str | None
+    phoneme: str | None
+
+
+def _parse_lines(lines: Iterable[str]) -> tuple[list[_Entry], bool]:
+    """Parse non-empty lines.
+
+    Returns (entries, had_error).
+    Each entry keeps flags so subsequent validators can still run
+    and log multiple errors even if some checks fail.
+    """
+    entries: list[_Entry] = []
+    had_error = False
+    for lineno, raw in enumerate(lines, 1):
         line = raw.strip()
         if not line:
             continue
+
         parts = line.split()
-        if len(parts) != 3:
-            return []
-        start, end, phoneme = parts
-        if not (start.isdigit() and end.isdigit()):
-            return []
-        if phoneme not in PHONEMES_JA_JP:
-            return []
-        parsed.append((start, end, phoneme))
-    return parsed
+        parts_ok = len(parts) == 3
+        start = end = phoneme = None
+        digits_ok = False
+        phoneme_ok = False
+
+        if not parts_ok:
+            logger.info("line=%d content=%r error=%s", lineno, raw, "must have exactly 3 space-separated fields")
+            had_error = True
+        else:
+            start, end, phoneme = parts
+            digits_ok = start.isdigit() and end.isdigit()
+            if not digits_ok:
+                logger.info("line=%d content=%r error=%s", lineno, raw, "first and second fields must be digits")
+                had_error = True
+            phoneme_ok = phoneme in PHONEMES_JA_JP
+            if not phoneme_ok:
+                logger.info("line=%d content=%r error=%s", lineno, raw, "third field must be a valid Japanese phoneme")
+                had_error = True
+
+        entries.append(_Entry((lineno, raw, parts_ok, digits_ok, phoneme_ok, start, end, phoneme)))
+
+    return entries, had_error
 
 
 def validate_label(path: str | Path) -> bool:
@@ -40,14 +78,39 @@ def validate_label(path: str | Path) -> bool:
     except Exception:
         return False
 
-    rows = _parse_lines(text.splitlines())
-    if not rows:
+    entries, had_error = _parse_lines(text.splitlines())
+    if not entries:
         return False
 
-    # adjacency check: end[i] == start[i+1]
-    for (start, end, _), (next_start, _, _) in zip(rows, rows[1:]):
-        if end != next_start:
-            return False
+    # numeric checks for lines with valid digits
+    nums: list[tuple[int, int, int, str]] = []  # (start, end, lineno, raw)
+    for lineno, raw, parts_ok, digits_ok, _phoneme_ok, start, end, _ph in entries:
+        if digits_ok and parts_ok and start is not None and end is not None:
+            nums.append((int(start), int(end), lineno, raw))
 
-    return True
+    # per-line strict order: start < end
+    for s, e, lineno, raw in nums:
+        if not (s < e):
+            logger.info("line=%d content=%r error=%s", lineno, raw, "start must be less than end")
+            had_error = True
 
+    # adjacency check and global monotonic increase of end times
+    for i, ((s, e, _, _), (ns, ne, next_lineno, next_raw)) in enumerate(zip(nums, nums[1:])):
+        if e != ns:
+            logger.info(
+                "line=%d content=%r error=%s",
+                next_lineno,
+                next_raw,
+                f"start must equal previous end (prev_end={e}, start={ns})",
+            )
+            had_error = True
+        if not (e < ne):
+            logger.info(
+                "line=%d content=%r error=%s",
+                next_lineno,
+                next_raw,
+                f"end must be greater than previous end (prev_end={e}, end={ne})",
+            )
+            had_error = True
+
+    return not had_error

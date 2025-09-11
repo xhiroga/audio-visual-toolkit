@@ -19,5 +19,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 addopts = "-vv --tb=short -s"
+log_cli = true
+log_cli_level = "INFO"
 pythonpath = ["src"]
 testpaths = ["tests"]
