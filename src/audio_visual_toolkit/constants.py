@@ -1,3 +1,4 @@
+# MPEG4 Visemes (14+1 IDs)
 # https://visagetechnologies.com/uploads/2012/08/MPEG-4FBAOverview.pdf
 # https://developers.meta.com/horizon/documentation/native/audio-ovrlipsync-viseme-reference
 MPEG4_VISEMES = [
@@ -18,14 +19,14 @@ MPEG4_VISEMES = [
     "U",
 ]
 
-# https://r9y9.github.io/ttslearn/latest/_modules/ttslearn/tacotron/frontend/openjtalk.html
-PHONEMES_JA_JP = [
-    "A",
-    "E",
-    "I",
+# Azure Visemes (22+1 IDs)は未対応。
+# https://learn.microsoft.com/azure/ai-services/speech-service/how-to-speech-synthesis-viseme
+
+# OpenJTalkの日本語音素一覧
+# ずんずんPJマルチモーダルデータベースのlabelファイルがOpenJTalk準拠と思われるため、そのようにした
+# https://github.com/r9y9/open_jtalk/blob/462fc38e/src/jpcommon/jpcommon_rule_utf_8.h
+PHONEMES_JA_JP_OPEN_JTALK = [
     "N",
-    "O",
-    "U",
     "a",
     "b",
     "by",
@@ -36,12 +37,14 @@ PHONEMES_JA_JP = [
     "e",
     "f",
     "g",
+    "gw",
     "gy",
     "h",
     "hy",
     "i",
     "j",
     "k",
+    "kw",
     "ky",
     "m",
     "my",
@@ -62,6 +65,4 @@ PHONEMES_JA_JP = [
     "w",
     "y",
     "z",
-    "pau",
-    "sil",
 ]
