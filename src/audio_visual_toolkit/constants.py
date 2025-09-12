@@ -27,7 +27,7 @@ MPEG4_VISEMES = list(get_args(Mpeg4Visemes))
 # https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ms717289%28v%3Dvs.85%29
 # https://learn.microsoft.com/azure/ai-services/speech-service/how-to-speech-synthesis-viseme
 # https://chatgpt.com/share/68c37a00-fb28-8010-8a3f-ceef2e318689
-SpVisemeNickNames = Literal[
+MsVisemeNicknames = Literal[
     "sil",
     "AX",
     "AA",
@@ -48,9 +48,10 @@ SpVisemeNickNames = Literal[
     "TH",
     "FV",
     "DTN",
-    "KGN",
+    "KGNG",
     "PBM",
 ]
+MS_VISEME_NICKNAMES = list(get_args(MsVisemeNicknames))
 
 # OpenJTalkの日本語音素一覧
 # ずんずんPJマルチモーダルデータベースのlabelファイルがOpenJTalk準拠と思われるため、そのようにした
@@ -99,3 +100,51 @@ PhonemesJaJpOpenJtalk: TypeAlias = Literal[
     "z",
 ]
 PHONEMES_JA_JP_OPEN_JTALK = list(get_args(PhonemesJaJpOpenJtalk))
+
+# https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-ssml-phonetic-sets#ja-jp を参考に、一部修正
+# "r" は [r],[l],[ɾ] のバリエーションがある自由異音とされるが、ここでは [l] として捉えて "nn" にマッピングする
+# "N" の異音化([m],[n],[ŋ])は考慮していない
+PHONEMES_JA_JP_TO_MS_VISEMES_DICT: dict[
+    PhonemesJaJpOpenJtalk, tuple[MsVisemeNicknames, ...]
+] = {
+    "sil": ("sil",),
+    "N": ("DTN",),
+    "a": ("AA",),
+    "b": ("PBM",),
+    "by": ("PBM", "I"),
+    "ch": ("SHCH",),
+    "cl": ("sil",),
+    "d": ("DTN",),
+    "dy": ("DTN", "I"),
+    "e": ("E",),
+    "f": ("FV",),
+    "g": ("KGNG",),
+    "gw": (),
+    "gy": ("KGNG", "I"),
+    "h": ("H",),
+    "hy": ("H", "I"),
+    "i": ("I",),
+    "j": ("SHCH",),
+    "k": ("KGNG",),
+    "kw": (),
+    "ky": ("KGNG", "I"),
+    "m": ("PBM",),
+    "my": ("PBM", "I"),
+    "n": ("DTN",),
+    "ny": ("DTN", "I"),
+    "o": ("OW",),
+    "p": ("PBM",),
+    "py": ("PBM", "I"),
+    "r": ("L",),
+    "ry": ("L", "I"),
+    "s": ("SZ",),
+    "sh": ("SHCH",),
+    "t": ("DTN",),
+    "ts": ("DTN", "SZ"),
+    "ty": ("DTN", "I"),
+    "u": ("U",),
+    "v": ("FV",),
+    "w": ("U",),
+    "y": ("I",),
+    "z": ("SZ",),
+}
