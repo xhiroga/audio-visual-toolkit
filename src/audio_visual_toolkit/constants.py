@@ -53,6 +53,11 @@ MsVisemeNicknames = Literal[
 ]
 MS_VISEME_NICKNAMES = list(get_args(MsVisemeNicknames))
 
+# TODO: 完成後、日本語音素 → MEPG4 Visemeの変換ドキュメントとも照らし合わせて検証。
+# https://docs.aws.amazon.com/ja_jp/polly/latest/dg/ph-table-japanese.html
+MS_VISEMES_TO_MPEG4_VISEMES_DICT: dict = {}
+
+
 # OpenJTalkの日本語音素一覧
 # ずんずんPJマルチモーダルデータベースのlabelファイルがOpenJTalk準拠と思われるため、そのようにした
 # https://github.com/r9y9/open_jtalk/blob/462fc38e/src/jpcommon/jpcommon_rule_utf_8.h
