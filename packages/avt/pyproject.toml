@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-validate_label = "audio_visual_toolkit.validate_label:main"
+validate-label = "audio_visual_toolkit.validate_label:main"
 
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
