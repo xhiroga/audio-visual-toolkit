@@ -55,7 +55,9 @@ SpVisemeNickNames = Literal[
 # OpenJTalkの日本語音素一覧
 # ずんずんPJマルチモーダルデータベースのlabelファイルがOpenJTalk準拠と思われるため、そのようにした
 # https://github.com/r9y9/open_jtalk/blob/462fc38e/src/jpcommon/jpcommon_rule_utf_8.h
+# ただし便宜上 `sil` を追加している
 PhonemesJaJpOpenJtalk: TypeAlias = Literal[
+    "sil",
     "N",
     "a",
     "b",

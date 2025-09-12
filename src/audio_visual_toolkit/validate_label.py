@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import Iterable
 
-from .constants import PHONEMES_JA_JP
+from .constants import PHONEMES_JA_JP_OPEN_JTALK
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def _parse_lines(lines: Iterable[str]) -> tuple[list[_Entry], bool]:
                     "first and second fields must be digits",
                 )
                 had_error = True
-            phoneme_ok = phoneme in PHONEMES_JA_JP
+            phoneme_ok = phoneme in PHONEMES_JA_JP_OPEN_JTALK
             if not phoneme_ok:
                 logger.warning(
                     "line=%d content=%r error=%s",
