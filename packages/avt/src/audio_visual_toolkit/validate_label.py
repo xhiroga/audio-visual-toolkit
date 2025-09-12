@@ -1,11 +1,9 @@
 import argparse
-
 import logging
 from pathlib import Path
 from typing import Iterable
 
 from .constants import PHONEMES_JA_JP_OPEN_JTALK
-
 
 logger = logging.getLogger(__name__)
 
@@ -140,9 +138,7 @@ def validate_label_file(path: str | Path) -> bool:
     return not had_error
 
 
-if __name__ == "__main__":
-    import argparse
-
+def main() -> None:
     parser = argparse.ArgumentParser(description="Validate label files (.lab)")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--label-file", type=str, help="Path to a label file (.lab)")
@@ -172,3 +168,7 @@ if __name__ == "__main__":
             any_fail = True
 
     raise SystemExit(0 if not any_fail else 1)
+
+
+if __name__ == "__main__":
+    main()
