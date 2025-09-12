@@ -1,2 +1,7 @@
 # audio-visual-toolkit
-My toolkit for AVSR (Audio Visual Speech Recognition)
+
+## How to Run
+
+```sh
+uvx --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' validate-label -h
+```
