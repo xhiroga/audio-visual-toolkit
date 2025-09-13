@@ -61,9 +61,10 @@ MS_VISEMES_TO_MPEG4_VISEMES_DICT: dict = {}
 # OpenJTalkの日本語音素一覧
 # ずんずんPJマルチモーダルデータベースのlabelファイルがOpenJTalk準拠と思われるため、そのようにした
 # https://github.com/r9y9/open_jtalk/blob/462fc38e/src/jpcommon/jpcommon_rule_utf_8.h
-# ただし便宜上 `sil` を追加している
+# 便宜上 `sil` と `pau` を含める（休止記号）。
 PhonemesJaJpOpenJtalk: TypeAlias = Literal[
     "sil",
+    "pau",
     "N",
     "a",
     "b",
@@ -113,6 +114,7 @@ PHONEMES_JA_JP_TO_MS_VISEMES_DICT: dict[
     PhonemesJaJpOpenJtalk, tuple[MsVisemeNicknames, ...]
 ] = {
     "sil": ("sil",),
+    "pau": ("sil",),
     "N": ("DTN",),
     "a": ("AA",),
     "b": ("PBM",),
