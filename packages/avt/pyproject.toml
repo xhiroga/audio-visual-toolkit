@@ -5,12 +5,15 @@ readme = "README.md"
 authors = [
     { name = "Hiroaki Ogasawara", email = "13391129+xhiroga@users.noreply.github.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
+    "mediapipe>=0.10.21",
+    "opencv-python>=4.11.0.86",
     "pytest>=8.4.2",
 ]
 
 [project.scripts]
+crop-mouth = "audio_visual_toolkit.crop_mouth:main"
 validate-label = "audio_visual_toolkit.validate_label:main"
 
 [build-system]
