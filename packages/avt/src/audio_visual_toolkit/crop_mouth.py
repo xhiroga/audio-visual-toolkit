@@ -45,8 +45,9 @@ MOUTH_INNER_IDX: tuple[int, ...] = (
 
 
 def _iter_video_files(base: Path) -> Iterable[Path]:
+    """Iterate video files directly under the directory (non-recursive)."""
     exts = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
-    for p in base.rglob("*"):
+    for p in base.iterdir():
         if p.is_file() and p.suffix.lower() in exts:
             yield p
 
@@ -151,12 +152,13 @@ def main() -> None:
     ing.add_argument(
         "--video-dir",
         type=str,
-        help="Path to a directory; recursively process video files",
+        help="Path to a directory; process files directly under it (non-recursive)",
     )
     parser.add_argument(
         "--out-dir",
         type=str,
-        help="Directory to write outputs (default: alongside inputs)",
+        required=True,
+        help="Directory to write outputs (required)",
     )
     parser.add_argument("--width", type=int, default=300, help="Crop width (pixels)")
     parser.add_argument("--height", type=int, default=300, help="Crop height (pixels)")
@@ -170,31 +172,23 @@ def main() -> None:
         if not inp.exists():
             print(f"Not found: {inp}")
             raise SystemExit(1)
-        if args.out_dir:
-            out_dir = Path(args.out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out = out_dir / ("LFROI_" + inp.stem + ".mp4")
-        else:
-            out = inp.with_name("LFROI_" + inp.stem + ".mp4")
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / ("LFROI_" + inp.stem + ".mp4")
 
         ok = crop_mouth_video(inp, out, width, height)
         raise SystemExit(0 if ok else 2)
     else:
         base = Path(args.video_dir)
-        if not base.exists():
-            print(f"Not found: {base}")
+        if not base.exists() or not base.is_dir():
+            print(f"Not found or not a directory: {base}")
             raise SystemExit(1)
-        out_root = (
-            Path(args.out_dir) if args.out_dir else base.with_name(base.name + "_mouth")
-        )
+        out_root = Path(args.out_dir)
         out_root.mkdir(parents=True, exist_ok=True)
 
         any_fail = False
         for p in sorted(_iter_video_files(base)):
-            rel = p.relative_to(base)
-            out_dir = out_root / rel.parent
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out = out_dir / ("LFROI_" + p.stem + ".mp4")
+            out = out_root / ("LFROI_" + p.stem + ".mp4")
             ok = crop_mouth_video(p, out, width, height)
             print(f"{p} -> {out}: {'OK' if ok else 'FAIL'}")
             if not ok:
