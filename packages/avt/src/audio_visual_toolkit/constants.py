@@ -155,6 +155,7 @@ PHONEMES_JA_JP_TO_MS_VISEMES_DICT: dict[
     "z": ("SZ",),
 }
 
+# https://mfa-models.readthedocs.io/en/latest/dictionary/Japanese/Japanese%20MFA%20dictionary%20v3_0_0.html
 JapaneseMfaDictionaryV3 = Literal[
     "a",
     "aː",
@@ -241,15 +242,18 @@ JapaneseMfaDictionaryV3 = Literal[
     "ʔ",
 ]
 
-MFA_V3_TO_PHONEMES_JA_JP_DICTIONARY: dict[
+MFA_V3_PHONES_JA_TO_PHONEMES_JA_JP_DICTIONARY: dict[
     JapaneseMfaDictionaryV3, tuple[PhonemesJaJpOpenJtalk, ...]
 ] = {
     "a": ("a",),
     "aː": ("a", "a"),
     "b": ("b",),
+    # "bʲ"は「ビャ・ビュ・ビョ」だけでなく、「ビ」にも使われることがある。一方、ずんずんPJのラベルの「ビ」は一律で "b i" なので注意。
+    # それ以外の口蓋化した音でも同様。
     "bʲ": ("by",),
     "bʲː": ("cl", "by"),
     "bː": ("cl", "b"),
+    # cはkʲに似ており、「キ」だけでなく「キャ・キュ・キョ」にも使われる。
     "c": ("k",),
     "cː": ("cl", "k"),
     "d": ("d",),
@@ -297,6 +301,7 @@ MFA_V3_TO_PHONEMES_JA_JP_DICTIONARY: dict[
     "w": ("w",),
     "wː": ("w", "w"),
     "z": ("z",),
+    # ç は「ヒ」だけでなく「ヒャ・ヒュ・ヒョ」にも使われる。
     "ç": ("h",),
     "çː": ("cl", "h"),
     "ŋ": ("g",),

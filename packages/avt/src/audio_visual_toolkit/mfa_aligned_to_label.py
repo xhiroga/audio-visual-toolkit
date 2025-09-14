@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-from .constants import MFA_V3_TO_PHONEMES_JA_JP_DICTIONARY
+from .constants import MFA_V3_PHONES_JA_TO_PHONEMES_JA_JP_DICTIONARY
 
 # HTK-style .lab units: 10,000,000 ticks per second (100 ns resolution)
 HTK_TICKS_PER_SEC = 10_000_000
@@ -16,7 +16,7 @@ def _iter_json_files(base: Path) -> Iterable[Path]:
 
 
 def _map_phone_to_phonemes(label: str) -> Tuple[str, ...]:
-    mapped = MFA_V3_TO_PHONEMES_JA_JP_DICTIONARY.get(label)
+    mapped = MFA_V3_PHONES_JA_TO_PHONEMES_JA_JP_DICTIONARY.get(label)
     if mapped is None:
         # Unknown phone: fall back to a pause to keep timing contiguous
         return ("pau",)
