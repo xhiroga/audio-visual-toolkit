@@ -1,4 +1,5 @@
 import argparse
+import math
 from pathlib import Path
 from typing import Iterable
 
@@ -52,6 +53,38 @@ def _iter_video_files(base: Path) -> Iterable[Path]:
             yield p
 
 
+def _detect_rotation(cap: cv2.VideoCapture) -> int:
+    """Return clockwise rotation degrees inferred from metadata (0/90/180/270)."""
+    rotate_prop = getattr(cv2, "CAP_PROP_ORIENTATION_META", None)
+    if rotate_prop is None:
+        return 0
+
+    value = cap.get(rotate_prop)
+    if value is None:
+        return 0
+    if isinstance(value, float):
+        if math.isnan(value):
+            return 0
+        value = int(round(value))
+    else:
+        value = int(value)
+
+    value %= 360
+    if value % 90 != 0:
+        return 0
+    return value
+
+
+def _apply_rotation(frame, rotation: int):
+    if rotation == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if rotation == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    if rotation == 270:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return frame
+
+
 def crop_mouth_video(
     input_path: Path, output_path: Path, width: int, height: int
 ) -> bool:
@@ -65,8 +98,9 @@ def crop_mouth_video(
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     if fps <= 1e-3:
         fps = 30.0
-    in_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    in_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    rotation = _detect_rotation(cap)
+    if rotation:
+        print(f"Applying rotation {rotation}° for {input_path}")
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
@@ -83,14 +117,21 @@ def crop_mouth_video(
         min_tracking_confidence=0.5,
     )
 
-    last_cx = in_w // 2
-    last_cy = in_h // 2
+    last_cx = -1
+    last_cy = -1
 
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
+
+            frame = _apply_rotation(frame, rotation)
+            frame_h, frame_w = frame.shape[:2]
+
+            if last_cx < 0 or last_cy < 0:
+                last_cx = frame_w // 2
+                last_cy = frame_h // 2
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             res = face_mesh.process(rgb)
@@ -102,8 +143,8 @@ def crop_mouth_video(
                 ys: list[float] = []
                 for idx in MOUTH_OUTER_IDX + MOUTH_INNER_IDX:
                     pt = lm[idx]
-                    xs.append(pt.x * in_w)
-                    ys.append(pt.y * in_h)
+                    xs.append(pt.x * frame_w)
+                    ys.append(pt.y * frame_h)
                 if xs and ys:
                     min_x, max_x = min(xs), max(xs)
                     min_y, max_y = min(ys), max(ys)
@@ -114,8 +155,8 @@ def crop_mouth_video(
             # define crop top-left ensuring bounds
             half_w = width // 2
             half_h = height // 2
-            x1 = max(0, min(in_w - width, cx - half_w))
-            y1 = max(0, min(in_h - height, cy - half_h))
+            x1 = max(0, min(frame_w - width, cx - half_w))
+            y1 = max(0, min(frame_h - height, cy - half_h))
 
             crop = frame[y1 : y1 + height, x1 : x1 + width]
 
