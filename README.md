@@ -14,3 +14,9 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 ```sh
 uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' validate-label -h
 ```
+
+### Visualize Model
+
+```sh
+uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/vis' visualize-model --model-path $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt
+```

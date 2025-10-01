@@ -1,0 +1,19 @@
+[project]
+name = "vis"
+version = "0.1.0"
+readme = "README.md"
+authors = [
+    { name = "Hiroaki Ogasawara", email = "13391129+xhiroga@users.noreply.github.com" }
+]
+
+requires-python = ">=3.10"
+dependencies = [
+    "fairseq>=0.12.2",
+    "torch>=2.8.0",
+]
+
+[project.scripts]
+visualize-model = "visualize_model.main:main"
+
+[tool.uv.sources]
+fairseq = { git = "https://github.com/facebookresearch/fairseq.git", rev = "v0.12.2" }
