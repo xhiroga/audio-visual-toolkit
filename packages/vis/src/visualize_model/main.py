@@ -1,6 +1,6 @@
 import argparse
+import json
 from pathlib import Path
-from pprint import pformat
 
 import torch
 from fairseq.data import dictionary as fairseq_dictionary
@@ -70,7 +70,7 @@ def _normalize(
             for v in value
         ]
     if isinstance(value, tuple):
-        return tuple(
+        return [
             _normalize(
                 v,
                 next_depth,
@@ -79,7 +79,7 @@ def _normalize(
                 current_key=current_key,
             )
             for v in value
-        )
+        ]
     if hasattr(value, "__dict__"):
         return _normalize(
             vars(value),
@@ -132,7 +132,7 @@ def main() -> None:
         ignore_keys=ignore_keys,
         current_key=None,
     )
-    print(pformat(normalized, sort_dicts=False, width=100))
+    print(json.dumps(normalized, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
