@@ -20,7 +20,17 @@ def _summarize(value: object) -> object:
     return value
 
 
-def _normalize(value: object, depth: int | None) -> object:
+def _normalize(
+    value: object,
+    depth: int | None,
+    *,
+    sort_keys: bool = False,
+    ignore_keys: set[str] | None = None,
+    current_key: str | None = None,
+) -> object:
+    if ignore_keys and current_key in ignore_keys:
+        return _summarize(value)
+
     if depth is not None and depth <= 0:
         return _summarize(value)
 
@@ -31,17 +41,53 @@ def _normalize(value: object, depth: int | None) -> object:
             "dtype": str(value.dtype),
             "device": str(value.device),
         }
+
+    next_depth = None if depth is None else depth - 1
+
     if isinstance(value, dict):
-        next_depth = None if depth is None else depth - 1
-        return {k: _normalize(v, next_depth) for k, v in value.items()}
+        items = value.items()
+        if sort_keys:
+            items = sorted(items)
+        return {
+            k: _normalize(
+                v,
+                next_depth,
+                sort_keys=sort_keys,
+                ignore_keys=ignore_keys,
+                current_key=k,
+            )
+            for k, v in items
+        }
     if isinstance(value, list):
-        next_depth = None if depth is None else depth - 1
-        return [_normalize(v, next_depth) for v in value]
+        return [
+            _normalize(
+                v,
+                next_depth,
+                sort_keys=sort_keys,
+                ignore_keys=ignore_keys,
+                current_key=current_key,
+            )
+            for v in value
+        ]
     if isinstance(value, tuple):
-        next_depth = None if depth is None else depth - 1
-        return tuple(_normalize(v, next_depth) for v in value)
+        return tuple(
+            _normalize(
+                v,
+                next_depth,
+                sort_keys=sort_keys,
+                ignore_keys=ignore_keys,
+                current_key=current_key,
+            )
+            for v in value
+        )
     if hasattr(value, "__dict__"):
-        return _normalize(vars(value), depth)
+        return _normalize(
+            vars(value),
+            next_depth,
+            sort_keys=sort_keys,
+            ignore_keys=ignore_keys,
+            current_key=current_key,
+        )
     return value
 
 
@@ -51,10 +97,16 @@ def main() -> None:
     )
     parser.add_argument("--model-path", required=True, help="Checkpoint to inspect")
     parser.add_argument(
-        "--depth",
+        "--expand-depth",
         type=int,
         default=3,
-        help="Pretty-print depth (use <=0 for unlimited)",
+        help="Maximum nesting depth to expand (use <=0 for unlimited)",
+    )
+    parser.add_argument(
+        "--expand-ignore",
+        nargs="*",
+        default=["model"],
+        help="Top-level keys to keep summarized regardless of depth",
     )
     args = parser.parse_args()
 
@@ -63,7 +115,8 @@ def main() -> None:
         print(f"Not found: {path}")
         raise SystemExit(1)
 
-    depth_arg = args.depth if args.depth > 0 else None
+    depth_arg = args.expand_depth if args.expand_depth > 0 else None
+    ignore_keys = set(args.expand_ignore or [])
 
     try:
         torch.serialization.add_safe_globals([fairseq_dictionary.Dictionary])
@@ -72,14 +125,14 @@ def main() -> None:
         print(f"Failed to load checkpoint: {exc}")
         raise SystemExit(2)
 
-    if isinstance(payload, dict):
-        normalized = {
-            key: _normalize(payload[key], depth_arg) for key in sorted(payload)
-        }
-        print(pformat(normalized, sort_dicts=False, width=100))
-        return
-
-    print(pformat(_normalize(payload, depth_arg)))
+    normalized = _normalize(
+        payload,
+        depth_arg,
+        sort_keys=isinstance(payload, dict),
+        ignore_keys=ignore_keys,
+        current_key=None,
+    )
+    print(pformat(normalized, sort_dicts=False, width=100))
 
 
 if __name__ == "__main__":
