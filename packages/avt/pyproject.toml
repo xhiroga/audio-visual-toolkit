@@ -17,9 +17,9 @@ dependencies = [
 
 [project.scripts]
 crop-mouth = "audio_visual_toolkit.crop_mouth:main"
-validate-label = "audio_visual_toolkit.validate_label:main"
 mfa-aligned-to-label = "audio_visual_toolkit.mfa_aligned_to_label:main"
-visualize-landmarks = "audio_visual_toolkit.visualize_landmarks:main"
+validate-label = "audio_visual_toolkit.validate_label:main"
+visualize-muavic = "audio_visual_toolkit.visualize_muavic:main"
 
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
