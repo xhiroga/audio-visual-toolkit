@@ -18,7 +18,7 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 ### Visualize [MuAViC](https://github.com/facebookresearch/muavic) Face Metadata
 
 ```sh
-uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/vis' visualize-muavic --pkl-file $ROOT/muavic/metadata/de/train/_Hk4MOw9gsA.pkl --out-dir ./out
+uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' visualize-muavic --pkl-file $ROOT/metadata/de/train/_Hk4MOw9gsA.pkl --out-dir ./out
 ```
 
 ### Visualize Model
