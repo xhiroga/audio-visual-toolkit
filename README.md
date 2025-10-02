@@ -19,6 +19,12 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 
 ```sh
 uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' visualize-muavic --pkl-file $ROOT/metadata/de/train/_Hk4MOw9gsA.pkl --out-dir ./out
+
+uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' visualize-muavic \
+  --pkl-file $ROOT/metadata/de/train/_Hk4MOw9gsA.pkl \
+  --out-dir ./out \
+  --video-file $ROOT/mtedx/video/de/train/_Hk4MOw9gsA.mp4 \
+  --segments-file $ROOT/mtedx/de-de/data/train/txt/segments
 ```
 
 ### Visualize Model

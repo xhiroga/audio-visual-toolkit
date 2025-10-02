@@ -44,17 +44,72 @@ def _render_segment(frames: list[list[list[float]]], out_path: Path) -> None:
         writer.release()
 
 
+def _render_overlay_segment(
+    frames: list[list[list[float]]],
+    cap: cv2.VideoCapture,
+    fps: float,
+    start_sec: float,
+    out_path: Path,
+) -> None:
+    if not frames:
+        return
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if width <= 0 or height <= 0:
+        raise RuntimeError("Failed to read video dimensions")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height)
+    )
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to open writer: {out_path}")
+    start_frame = int(round(start_sec * fps))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    try:
+        for landmarks in frames:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            for x, y in landmarks:
+                cv2.circle(frame, (int(round(x)), int(round(y))), 2, (0, 255, 0), -1)
+            writer.write(frame)
+    finally:
+        writer.release()
+
+
+def _load_segment_times(segments_file: Path, talk_id: str) -> tuple[list[str], dict[str, tuple[float, float]]]:
+    order: list[str] = []
+    mapping: dict[str, tuple[float, float]] = {}
+    with open(segments_file) as sf:
+        for line in sf:
+            parts = line.strip().split()
+            if len(parts) != 4:
+                continue
+            seg_id, seg_talk, start_sec, end_sec = parts
+            if seg_talk != talk_id:
+                continue
+            if seg_id not in mapping:
+                order.append(seg_id)
+            mapping[seg_id] = (float(start_sec), float(end_sec))
+    return order, mapping
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Render landmark-only videos")
+    parser = argparse.ArgumentParser(description="Render MuAViC landmarks")
     parser.add_argument("--pkl-file", required=True, help="Path to landmark pickle")
+    parser.add_argument("--out-dir", required=True, help="Directory to write outputs")
+    parser.add_argument("--video-file", help="Source video for overlay rendering")
     parser.add_argument(
-        "--out-dir", required=True, help="Directory to write rendered videos"
+        "--segments-file",
+        help="segments file mapping IDs to start/end seconds (use with --video-file)",
     )
     args = parser.parse_args()
+
     pkl_path = Path(args.pkl_file)
     out_dir = Path(args.out_dir)
     if not pkl_path.exists():
         raise SystemExit(f"Not found: {pkl_path}")
+
     with open(pkl_path, "rb") as f:
         segments = pickle.load(f)
     try:
@@ -65,21 +120,66 @@ def main() -> None:
             " points [x, y].\n"
             f"Validation error: {exc}"
         ) from exc
-    json_path = Path(args.out_dir) / f"{pkl_path.stem}.json"
-    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / f"{pkl_path.stem}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(segments, f)
+
+    if (args.video_file is None) ^ (args.segments_file is None):
+        raise SystemExit("--video-file と --segments-file は同時に指定してください")
+
+    overlay = args.video_file is not None
+    seg_ids = list(segments.keys())
+    seg_order = seg_ids
+    seg_times: dict[str, tuple[float, float]] = {}
+    cap: cv2.VideoCapture | None = None
+    fps = 25.0
+
+    if overlay:
+        video_path = Path(args.video_file)
+        segments_file = Path(args.segments_file)
+        if not video_path.exists():
+            raise SystemExit(f"Not found: {video_path}")
+        if not segments_file.exists():
+            raise SystemExit(f"Not found: {segments_file}")
+        seg_order, seg_times = _load_segment_times(segments_file, pkl_path.stem)
+        if not seg_order:
+            raise SystemExit("segments ファイルに対象トークの情報がありません")
+        missing = [seg_id for seg_id in seg_ids if seg_id not in seg_times]
+        if missing:
+            preview = ", ".join(sorted(missing[:5]))
+            suffix = "..." if len(missing) > 5 else ""
+            raise SystemExit(
+                "segments ファイルに以下の ID が見つかりませんでした: "
+                f"{preview}{suffix}"
+            )
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise SystemExit(f"Failed to open video: {video_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS) or fps
+        if fps <= 1e-3:
+            fps = 25.0
+        seg_order = [seg_id for seg_id in seg_order if seg_id in segments]
+        seg_ids = seg_order
+
     any_written = False
-    for seg_id, frames in tqdm(
-        segments.items(),
-        total=len(segments),
-        desc=f"Rendering {pkl_path.stem}",
-    ):
-        if not frames:
-            continue
-        out_path = out_dir / f"{seg_id}.mp4"
-        _render_segment(frames, out_path)
-        any_written = True
+    try:
+        for seg_id in tqdm(seg_ids, desc=f"Rendering {pkl_path.stem}", total=len(seg_ids)):
+            frames = segments[seg_id]
+            if not frames:
+                continue
+            out_path = out_dir / f"{seg_id}.mp4"
+            if overlay and cap is not None:
+                start_sec, _ = seg_times[seg_id]
+                _render_overlay_segment(frames, cap, fps, start_sec, out_path)
+            else:
+                _render_segment(frames, out_path)
+            any_written = True
+    finally:
+        if cap is not None:
+            cap.release()
+
     if not any_written:
         raise SystemExit("No frames rendered")
 
