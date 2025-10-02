@@ -15,6 +15,13 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/avt' validate-label -h
 ```
 
+### Visualize Landmark
+
+```sh
+uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/vis' visualize-model --pkl-file $ROOT/muavic/metadata/de/train/_Hk4MOw9gsA.pkl --out-dir ./out
+```
+
+
 ### Visualize Model
 
 ```sh

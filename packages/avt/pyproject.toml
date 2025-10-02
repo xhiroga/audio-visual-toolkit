@@ -8,14 +8,18 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "mediapipe>=0.10.21",
+    "numpy>=1.26.4",
     "opencv-python>=4.11.0.86",
+    "pydantic>=2.11.9",
     "pytest>=8.4.2",
+    "tqdm>=4.67.1",
 ]
 
 [project.scripts]
 crop-mouth = "audio_visual_toolkit.crop_mouth:main"
 validate-label = "audio_visual_toolkit.validate_label:main"
 mfa-aligned-to-label = "audio_visual_toolkit.mfa_aligned_to_label:main"
+visualize-landmarks = "audio_visual_toolkit.visualize_landmarks:main"
 
 [build-system]
 requires = ["uv_build>=0.8.15,<0.9.0"]
