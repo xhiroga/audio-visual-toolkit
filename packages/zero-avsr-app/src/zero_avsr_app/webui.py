@@ -1,25 +1,38 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import gradio as gr
-
 from hydra.experimental import compose, initialize_config_dir
-
-from .main import (
+from zero_avsr_app.main import (
     ALLOWED_LANGUAGE_CODES,
-    LANGUAGE_NAME_BY_CODE,
     CONFIG_DIR,
     CONFIG_NAME,
+    LANGUAGE_NAME_BY_CODE,
     run_inference,
 )
-
 
 MODE_LABELS = {
     "avsr": "Audio + Video (AVSR)",
     "vsr": "Video Only (VSR)",
 }
+
+
+def _maybe_path(file_obj: Any) -> Optional[Path]:
+    if file_obj is None:
+        return None
+    if isinstance(file_obj, (str, Path)):
+        return Path(file_obj)
+    if isinstance(file_obj, dict) and "name" in file_obj:
+        return Path(file_obj["name"])
+    path_attr = getattr(file_obj, "path", None)
+    if path_attr:
+        return Path(path_attr)
+    name = getattr(file_obj, "name", None)
+    if name:
+        return Path(name)
+    return None
 
 
 def _create_predict_fn(
@@ -33,12 +46,13 @@ def _create_predict_fn(
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
     def _predict(
-        video_file: Optional[str],
-        audio_file: Optional[str],
+        video_file,
+        audio_file,
         language_code: str,
         mode_label: str,
     ) -> str:
-        if video_file is None:
+        video_path = _maybe_path(video_file)
+        if video_path is None:
             return "動画ファイルをアップロードしてください。"
 
         if language_code not in ALLOWED_LANGUAGE_CODES:
@@ -47,14 +61,14 @@ def _create_predict_fn(
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
         audio_path: Optional[Path]
         if mode_key == "avsr":
-            if not audio_file:
+            audio_path = _maybe_path(audio_file)
+            if audio_path is None:
                 return "AVSRモードでは音声ファイルのアップロードが必要です。"
-            audio_path = Path(audio_file)
         else:
             audio_path = None
 
         outputs = run_inference(
-            video_path=Path(video_file),
+            video_path=video_path,
             audio_path=audio_path,
             lang_code=language_code,
             llm_path=llm_path,
@@ -93,13 +107,12 @@ def build_interface(predict_fn):
                     value=f"eng - {LANGUAGE_NAME_BY_CODE['eng']}",
                     label="言語",
                 )
-                video_input = gr.Video(
+                video_input = gr.File(
                     label="動画 (MP4)",
-                    type="filepath",
+                    file_types=["video"],
                 )
-                audio_input = gr.Audio(
-                    sources=["upload"],
-                    type="filepath",
+                audio_input = gr.File(
+                    file_types=["audio"],
                     label="音声 (WAV, AVSRモード時必須)",
                 )
                 submit_btn = gr.Button("推論を実行")

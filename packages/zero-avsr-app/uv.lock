@@ -2752,30 +2752,6 @@ wheels = [
 ]
 
 [[package]]
-name = "zavsr"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "memray" },
-    { name = "transformers" },
-    { name = "zero-avsr" },
-]
-
-[package.optional-dependencies]
-webui = [
-    { name = "gradio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "gradio", marker = "extra == 'webui'", specifier = ">=5.49.1" },
-    { name = "memray", specifier = ">=1.18.0" },
-    { name = "transformers", specifier = ">=4.57.0" },
-    { name = "zero-avsr", git = "https://github.com/xhiroga/zero-avsr?rev=packaged" },
-]
-provides-extras = ["webui"]
-
-[[package]]
 name = "zero-avsr"
 version = "0.1.0"
 source = { git = "https://github.com/xhiroga/zero-avsr?rev=packaged#3cee83412d215c2a58af2c18e7059cb2fcd8f9e6" }
@@ -2805,3 +2781,27 @@ dependencies = [
     { name = "transformers" },
     { name = "unidecode" },
 ]
+
+[[package]]
+name = "zero-avsr-app"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "memray" },
+    { name = "transformers" },
+    { name = "zero-avsr" },
+]
+
+[package.optional-dependencies]
+webui = [
+    { name = "gradio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gradio", marker = "extra == 'webui'", specifier = ">=5.49.1" },
+    { name = "memray", specifier = ">=1.18.0" },
+    { name = "transformers", specifier = ">=4.57.0" },
+    { name = "zero-avsr", git = "https://github.com/xhiroga/zero-avsr?rev=packaged" },
+]
+provides-extras = ["webui"]
