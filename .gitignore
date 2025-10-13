@@ -1,4 +1,5 @@
 .env
+memray/
 out/
 runs/
 snippets/

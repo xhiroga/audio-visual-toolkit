@@ -4,20 +4,19 @@
 # - avhubert/hubert_pretraining.py
 
 import argparse
+import logging
 from pathlib import Path
 from typing import List, Optional, TypedDict, Union
 
 import cv2
 import librosa
 import numpy as np
-import stage2
+import stage2  # noqa: F401  # タスク登録の副作用が必要
 import torch
-from fairseq import checkpoint_utils
+from fairseq import checkpoint_utils, utils
 from hydra.experimental import compose, initialize_config_dir
 from python_speech_features import logfbank
 from transformers import AutoTokenizer
-
-stage2
 
 
 class SourceInput(TypedDict):
@@ -134,11 +133,11 @@ def preprocess_video(
 
 
 def load_audio_logfbank(
-    movie_path: Path, sample_rate: int, stack_order: int
+    audio_path: Path, sample_rate: int, stack_order: int
 ) -> np.ndarray:
-    audio, sr = librosa.load(str(movie_path), sr=sample_rate, mono=True)
+    audio, sr = librosa.load(str(audio_path), sr=sample_rate, mono=True)
     if audio.size == 0:
-        raise ValueError(f"音声トラックを取得できませんでした: {movie_path}")
+        raise ValueError(f"音声トラックを取得できませんでした: {audio_path}")
 
     feats = logfbank(audio, samplerate=sample_rate).astype(np.float32)
     feats = stack_audio_features(feats, stack_order)
@@ -146,15 +145,22 @@ def load_audio_logfbank(
 
 
 def main(
-    movie_path: Path,
+    video_path: Path,
+    audio_path: Optional[Path],
     llm_path: str,
     av_romanizer_path: Path,
     avhubert_path: Path,
     model_path: Path,
+    log_level: str,
 ):
     """
     Recognize the video file given as an argument with Zero-AVSR and return the result.
     """
+
+    logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
+    logger = logging.getLogger("zavsr")
+
+    logger.info("Loading tokenizer from %s", llm_path)
 
     tokenizer = AutoTokenizer.from_pretrained(llm_path)
     tokenizer.pad_token = tokenizer.eos_token
@@ -169,14 +175,21 @@ def main(
         }
     }
 
+    logger.info("Loading Zero-AVSR model from %s", model_path)
     models, saved_cfg, _task = checkpoint_utils.load_model_ensemble_and_task(
         [str(model_path)], arg_overrides=model_override_cfg, strict=False
     )
+    logger.info("Loaded %d model(s)", len(models))
     if not models:
         raise RuntimeError("モデルのロードに失敗しました")
 
     model = models[0]
     model.eval()
+
+    use_cuda = torch.cuda.is_available()
+    if use_cuda:
+        model.cuda()
+        model.half()
 
     sample_rate = getattr(saved_cfg.task, "sample_rate", 16000)
     stack_order = getattr(saved_cfg.task, "stack_order_audio", 1)
@@ -184,14 +197,33 @@ def main(
     image_mean = getattr(saved_cfg.task, "image_mean", 0.421)
     image_std = getattr(saved_cfg.task, "image_std", 0.165)
 
-    raw_frames = load_video_frames(movie_path)
+    logger.debug(
+        "Preprocess params: sample_rate=%s stack_order=%s crop_size=%s image_mean=%s image_std=%s",
+        sample_rate,
+        stack_order,
+        crop_size,
+        image_mean,
+        image_std,
+    )
+
+    logger.info("Loading video frames from %s", video_path)
+    raw_frames = load_video_frames(video_path)
     video_frames = preprocess_video(
         raw_frames, crop_size=crop_size, mean=image_mean, std=image_std
     )
 
-    audio_features = load_audio_logfbank(
-        movie_path, sample_rate=sample_rate, stack_order=stack_order
-    )
+    audio_features: Optional[np.ndarray] = None
+    if audio_path:
+        try:
+            logger.info("Extracting audio features from %s", audio_path)
+            audio_features = load_audio_logfbank(
+                audio_path, sample_rate=sample_rate, stack_order=stack_order
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("音声特徴量の抽出に失敗しました: %s", exc)
+            audio_features = None
+    else:
+        logger.info("Audio path not provided; skipping audio features")
 
     lang_name = "English"
     instruction_ids = tokenizer(
@@ -208,7 +240,25 @@ def main(
         audio_features=audio_features,
     )
 
+    logger.debug(
+        "Prepared net input: video_shape=%s audio_shape=%s",
+        net_input["source"]["video"].shape
+        if net_input["source"]["video"] is not None
+        else None,
+        net_input["source"]["audio"].shape
+        if net_input["source"]["audio"] is not None
+        else None,
+    )
+
+    if use_cuda:
+        net_input = utils.move_to_cuda(net_input)
+        if net_input["source"]["video"] is not None:
+            net_input["source"]["video"] = net_input["source"]["video"].half()
+        if net_input["source"]["audio"] is not None:
+            net_input["source"]["audio"] = net_input["source"]["audio"].half()
+
     with torch.no_grad():
+        logger.info("Running model.generate")
         hypotheses = model.generate(
             num_beams=1,
             temperature=1.0,
@@ -222,7 +272,7 @@ def main(
     )
 
     for idx, text in enumerate(decoded):
-        print(f"Hypothesis[{idx}]: {text}")
+        logger.info("Hypothesis[%d]: %s", idx, text)
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "conf"
@@ -231,11 +281,17 @@ CONFIG_NAME = "s2s_decode"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--movie-path", type=Path, required=True)
+    parser.add_argument("--video-path", type=Path, required=True)
+    parser.add_argument("--audio-path", type=Path)
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--av-romanizer-path", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--avhubert-path", type=Path, required=True)
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
     args = parser.parse_args()
 
     overrides = [
@@ -243,7 +299,7 @@ if __name__ == "__main__":
         f"override.llm_path={args.llm_path}",
         f"override.av_romanizer_path={args.av_romanizer_path}",
         f"+model.w2v_path={args.avhubert_path}",
-        "override.modalities=[video,audio]",
+        ("override.modalities=[video,audio]" if args.audio_path else "override.modalities=[video]"),
         f"common.user_dir={Path(__file__).resolve().parent}",
     ]
 
@@ -254,9 +310,11 @@ if __name__ == "__main__":
     cfg_w2v = getattr(model_cfg, "w2v_path", None) if model_cfg is not None else None
 
     main(
-        movie_path=args.movie_path,
+        video_path=args.video_path,
+        audio_path=args.audio_path,
         llm_path=cfg.override.llm_path,
         av_romanizer_path=Path(cfg.override.av_romanizer_path),
         avhubert_path=Path(cfg_w2v) if cfg_w2v else args.avhubert_path,
         model_path=Path(cfg.common_eval.path),
+        log_level=args.log_level,
     )
