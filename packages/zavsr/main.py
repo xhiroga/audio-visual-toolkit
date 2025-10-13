@@ -10,23 +10,30 @@ from hydra.experimental import compose, initialize_config_dir
 from transformers import AutoTokenizer
 
 
+def _extract_model_state(checkpoint_state: dict) -> dict:
+    """Load the model state_dict from a fairseq checkpoint dictionary."""
+
+    for key in ("model", "model_state", "model_state_dict"):
+        if key in checkpoint_state:
+            return checkpoint_state[key]
+
+    if "models" in checkpoint_state and checkpoint_state["models"]:
+        return checkpoint_state["models"][0]
+
+    raise KeyError("Expected model weights in checkpoint but none were found.")
+
+
 def main(movie_path: Path, llm_path: str, av_romanizer_path: Path, model_path: Path):
     """
     Recognize the video file given as an argument with Zero-AVSR and return the result.
     """
 
     tokenizer = AutoTokenizer.from_pretrained(llm_path)
-    model_override_cfg = {
-        "model": {
-            "llm_path": llm_path,
-            "av_romanizer_path": str(av_romanizer_path),
-        }
-    }
-    models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task(
-        [str(model_path)], model_override_cfg, strict=False
-    )
 
-    print("Hello from zavsr!")
+    checkpoint_state = checkpoint_utils.load_checkpoint_to_cpu(str(model_path))
+    model = _extract_model_state(checkpoint_state)
+
+    print(f"{tokenizer=}, {model=}")
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "conf"
