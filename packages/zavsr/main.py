@@ -261,8 +261,8 @@ def main(
     with torch.no_grad():
         logger.info("Running model.generate")
         hypotheses = model.generate(
-            num_beams=1,
-            temperature=1.0,
+            num_beams=2,
+            temperature=0.3,
             use_speech_embs=True,
             use_roman_toks=False,
             **net_input,
