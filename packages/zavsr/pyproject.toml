@@ -10,5 +10,10 @@ dependencies = [
     "zero-avsr",
 ]
 
+[project.optional-dependencies]
+webui = [
+    "gradio>=5.49.1",
+]
+
 [tool.uv.sources]
 zero-avsr = { git = "https://github.com/xhiroga/zero-avsr", rev = "packaged" }

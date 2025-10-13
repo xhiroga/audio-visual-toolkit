@@ -5,6 +5,7 @@
 
 import argparse
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, TypedDict, Union
 
@@ -18,6 +19,21 @@ from fairseq import checkpoint_utils, utils
 from hydra.experimental import compose, initialize_config_dir
 from python_speech_features import logfbank
 from transformers import AutoTokenizer
+
+
+LANGUAGE_NAME_BY_CODE = {
+    "ara": "Arabic",
+    "deu": "German",
+    "ell": "Greek",
+    "spa": "Spanish",
+    "fra": "French",
+    "ita": "Italian",
+    "por": "Portuguese",
+    "rus": "Russian",
+    "eng": "English",
+}
+
+ALLOWED_LANGUAGE_CODES = tuple(LANGUAGE_NAME_BY_CODE.keys())
 
 
 class SourceInput(TypedDict):
@@ -156,6 +172,7 @@ def main(
     avhubert_path: Path,
     model_path: Path,
     log_level: str,
+    mode: str = "avsr",
 ):
     """
     Recognize the video file given as an argument with Zero-AVSR and return the result.
@@ -164,8 +181,31 @@ def main(
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
     logger = logging.getLogger("zavsr")
 
-    logger.info("Loading tokenizer from %s", llm_path)
+    decoded = run_inference(
+        video_path=video_path,
+        audio_path=audio_path,
+        lang_code=lang,
+        llm_path=llm_path,
+        av_romanizer_path=av_romanizer_path,
+        avhubert_path=avhubert_path,
+        model_path=model_path,
+        logger=logger,
+        mode=mode,
+    )
 
+    for idx, text in enumerate(decoded):
+        logger.info("Hypothesis[%d]: %s", idx, text)
+
+    return decoded
+
+
+@lru_cache(maxsize=1)
+def _load_model_bundle(
+    llm_path: str,
+    av_romanizer_path: str,
+    avhubert_path: str,
+    model_path: str,
+):
     tokenizer = AutoTokenizer.from_pretrained(llm_path)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -174,16 +214,15 @@ def main(
     model_override_cfg = {
         "model": {
             "llm_path": llm_path,
-            "av_romanizer_path": str(av_romanizer_path),
-            "w2v_path": str(avhubert_path),
+            "av_romanizer_path": av_romanizer_path,
+            "w2v_path": avhubert_path,
         }
     }
 
-    logger.info("Loading Zero-AVSR model from %s", model_path)
     models, saved_cfg, _task = checkpoint_utils.load_model_ensemble_and_task(
-        [str(model_path)], arg_overrides=model_override_cfg, strict=False
+        [model_path], arg_overrides=model_override_cfg, strict=False
     )
-    logger.info("Loaded %d model(s)", len(models))
+
     if not models:
         raise RuntimeError("モデルのロードに失敗しました")
 
@@ -194,6 +233,41 @@ def main(
     if use_cuda:
         model.cuda()
         model.half()
+
+    return tokenizer, model, saved_cfg
+
+
+def _resolve_language(lang_code: Optional[str]) -> str:
+    if lang_code is None:
+        return LANGUAGE_NAME_BY_CODE["eng"]
+    lang_code = lang_code.lower()
+    if lang_code not in LANGUAGE_NAME_BY_CODE:
+        allowed = ", ".join(ALLOWED_LANGUAGE_CODES)
+        raise ValueError(f"Unsupported language code '{lang_code}'. Use one of: {allowed}")
+    return LANGUAGE_NAME_BY_CODE[lang_code]
+
+
+def run_inference(
+    video_path: Path,
+    audio_path: Optional[Path],
+    lang_code: Optional[str],
+    llm_path: Union[str, Path],
+    av_romanizer_path: Path,
+    avhubert_path: Path,
+    model_path: Path,
+    logger: Optional[logging.Logger] = None,
+    mode: str = "avsr",
+) -> List[str]:
+    if logger is None:
+        logger = logging.getLogger("zavsr")
+
+    lang_name = _resolve_language(lang_code)
+
+    tokenizer, model, saved_cfg = _load_model_bundle(
+        str(llm_path), str(av_romanizer_path), str(avhubert_path), str(model_path)
+    )
+
+    use_cuda = torch.cuda.is_available()
 
     sample_rate = getattr(saved_cfg.task, "sample_rate", 16000)
     stack_order = getattr(saved_cfg.task, "stack_order_audio", 1)
@@ -218,8 +292,10 @@ def main(
         raw_frames, crop_size=crop_size, mean=image_mean, std=image_std
     )
 
+    use_audio = mode.lower() != "vsr" and audio_path is not None
+
     audio_features: Optional[np.ndarray] = None
-    if audio_path:
+    if use_audio:
         try:
             logger.info("Extracting audio features from %s", audio_path)
             audio_features = load_audio_logfbank(
@@ -228,10 +304,11 @@ def main(
         except Exception as exc:  # noqa: BLE001
             logger.warning("音声特徴量の抽出に失敗しました: %s", exc)
             audio_features = None
+    elif mode.lower() == "avsr" and audio_path is None:
+        logger.warning("AVSRモードですが音声ファイルが指定されていません。映像のみで推論します。")
     else:
-        logger.info("Audio path not provided; skipping audio features")
+        logger.info("VSRモードで推論します（音声を使用しません）")
 
-    lang_name = lang or "English"
     instruction_ids = tokenizer(
         f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_name}. Input:",
         return_tensors="pt",
@@ -242,7 +319,7 @@ def main(
         instruction=instruction_ids,
         roman_source="",
         lang_id=lang_name,
-        zero_shot=False,
+        zero_shot=(lang_name != "English"),
         audio_features=audio_features,
         normalize_audio=normalize_audio,
     )
@@ -263,6 +340,7 @@ def main(
             net_input["source"]["video"] = net_input["source"]["video"].half()
         if net_input["source"]["audio"] is not None:
             net_input["source"]["audio"] = net_input["source"]["audio"].half()
+        model = model.half()
 
     with torch.no_grad():
         logger.info("Running model.generate")
@@ -278,8 +356,9 @@ def main(
         hypotheses, skip_special_tokens=True, clean_up_tokenization_spaces=False
     )
 
-    for idx, text in enumerate(decoded):
-        logger.info("Hypothesis[%d]: %s", idx, text)
+    logger.debug("Decoded outputs: %s", decoded)
+
+    return decoded
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "conf"
@@ -290,7 +369,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--video-path", type=Path, required=True)
     parser.add_argument("--audio-path", type=Path)
-    parser.add_argument("--lang")
+    parser.add_argument("--lang", choices=ALLOWED_LANGUAGE_CODES, default="eng")
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--av-romanizer-path", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
@@ -299,6 +378,12 @@ if __name__ == "__main__":
         "--log-level",
         default="INFO",
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["avsr", "vsr"],
+        default="avsr",
+        help="Choose audio-visual (avsr) or visual-only (vsr) decoding",
     )
     args = parser.parse_args()
 
@@ -330,4 +415,5 @@ if __name__ == "__main__":
         avhubert_path=Path(cfg_w2v) if cfg_w2v else args.avhubert_path,
         model_path=Path(cfg.common_eval.path),
         log_level=args.log_level,
+        mode=args.mode,
     )

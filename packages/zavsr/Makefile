@@ -3,6 +3,9 @@ export
 
 MEMRAY_DIR := memray
 
+webui:
+	uv run --extra webui webui.py
+
 debug:
 	mkdir -p $(MEMRAY_DIR)
 	uv run memray run -o $(MEMRAY_DIR)/memray-`date +%Y%m%d-%H%M%S`.bin -- \
@@ -13,7 +16,7 @@ debug:
 		--av-romanizer-path $$PRETRAINED_MODELS_DIR/av-romanizer/all/checkpoint_best.pt \
 		--avhubert-path $$PRETRAINED_MODELS_DIR/avhubert/large_vox_iter5.pt \
 		--model-path $$PRETRAINED_MODELS_DIR/zero-avsr/all/checkpoint_best.pt \
-		--lang de \
+		--lang deu \
 		--log-level INFO
 
 flamegraph:
