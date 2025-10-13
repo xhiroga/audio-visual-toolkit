@@ -1,4 +1,6 @@
 .env
+out/
+runs/
 snippets/
 wandb/
 
