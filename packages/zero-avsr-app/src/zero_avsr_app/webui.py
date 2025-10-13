@@ -8,10 +8,9 @@ import numpy as np
 import gradio as gr
 from hydra.experimental import compose, initialize_config_dir
 from zero_avsr_app.main import (
-    ALLOWED_LANGUAGE_CODES,
     CONFIG_DIR,
     CONFIG_NAME,
-    LANGUAGE_NAME_BY_CODE,
+    SUPPORTED_LANGUAGE_CODES,
     load_audio_waveform,
     load_video_frames,
     run_inference,
@@ -20,6 +19,18 @@ from zero_avsr_app.main import (
 MODE_LABELS = {
     "avsr": "Audio + Video (AVSR)",
     "vsr": "Video Only (VSR)",
+}
+
+LANGUAGE_NAME_BY_CODE = {
+    "ara": "Arabic",
+    "deu": "German",
+    "ell": "Greek",
+    "spa": "Spanish",
+    "fra": "French",
+    "ita": "Italian",
+    "por": "Portuguese",
+    "rus": "Russian",
+    "eng": "English",
 }
 
 
@@ -72,7 +83,7 @@ def _create_predict_fn(
         if video_path is None:
             return "動画ファイルをアップロードしてください。"
 
-        if language_code not in ALLOWED_LANGUAGE_CODES:
+        if language_code not in SUPPORTED_LANGUAGE_CODES:
             return "未対応の言語コードです。"
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
@@ -117,7 +128,7 @@ def _create_predict_fn(
 def build_interface(predict_fn):
     lang_choices = [
         (code, f"{code} - {LANGUAGE_NAME_BY_CODE[code]}")
-        for code in ALLOWED_LANGUAGE_CODES
+        for code in SUPPORTED_LANGUAGE_CODES
     ]
 
     with gr.Blocks() as demo:

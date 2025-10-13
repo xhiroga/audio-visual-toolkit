@@ -7,7 +7,7 @@ import argparse
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Tuple, TypedDict, Union
+from typing import List, Literal, Optional, Tuple, TypedDict, Union, get_args
 
 import cv2
 import librosa
@@ -20,20 +20,8 @@ from hydra.experimental import compose, initialize_config_dir
 from python_speech_features import logfbank
 from transformers import AutoTokenizer
 
-
-LANGUAGE_NAME_BY_CODE = {
-    "ara": "Arabic",
-    "deu": "German",
-    "ell": "Greek",
-    "spa": "Spanish",
-    "fra": "French",
-    "ita": "Italian",
-    "por": "Portuguese",
-    "rus": "Russian",
-    "eng": "English",
-}
-
-ALLOWED_LANGUAGE_CODES = tuple(LANGUAGE_NAME_BY_CODE.keys())
+LanguageCode = Literal["ara", "deu", "ell", "spa", "fra", "ita", "por", "rus", "eng"]
+SUPPORTED_LANGUAGE_CODES = get_args(LanguageCode)
 
 
 class SourceInput(TypedDict):
@@ -41,7 +29,7 @@ class SourceInput(TypedDict):
     video: Optional[torch.Tensor]
     instruction: List[torch.Tensor]
     roman_sources: List[str]
-    langs: List[str]
+    langs: List[LanguageCode]
     zero_shot_samples: torch.Tensor
 
 
@@ -177,7 +165,7 @@ def waveform_to_logfbank(
 def main(
     video_path: Path,
     audio_path: Optional[Path],
-    lang: Optional[str],
+    lang: LanguageCode,
     llm_path: str,
     av_romanizer_path: Path,
     avhubert_path: Path,
@@ -201,7 +189,9 @@ def main(
         audio_source = audio_path if audio_path is not None else video_path
         try:
             logger.info("Extracting audio waveform from %s", audio_source)
-            audio_waveform, audio_rate = load_audio_waveform(audio_source, sample_rate=None)
+            audio_waveform, audio_rate = load_audio_waveform(
+                audio_source, sample_rate=None
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("音声波形の取得に失敗しました: %s", exc)
             audio_waveform = None
@@ -266,21 +256,11 @@ def _load_model_bundle(
     return tokenizer, model, saved_cfg
 
 
-def _resolve_language(lang_code: Optional[str]) -> str:
-    if lang_code is None:
-        return LANGUAGE_NAME_BY_CODE["eng"]
-    lang_code = lang_code.lower()
-    if lang_code not in LANGUAGE_NAME_BY_CODE:
-        allowed = ", ".join(ALLOWED_LANGUAGE_CODES)
-        raise ValueError(f"Unsupported language code '{lang_code}'. Use one of: {allowed}")
-    return LANGUAGE_NAME_BY_CODE[lang_code]
-
-
 def run_inference(
     video_frames: np.ndarray,
     audio_waveform: Optional[np.ndarray],
     audio_rate: Optional[int],
-    lang_code: Optional[str],
+    lang_code: LanguageCode,
     llm_path: Union[str, Path],
     av_romanizer_path: Path,
     avhubert_path: Path,
@@ -290,8 +270,6 @@ def run_inference(
 ) -> List[str]:
     if logger is None:
         logger = logging.getLogger("zavsr")
-
-    lang_name = _resolve_language(lang_code)
 
     tokenizer, model, saved_cfg = _load_model_bundle(
         str(llm_path), str(av_romanizer_path), str(avhubert_path), str(model_path)
@@ -336,10 +314,12 @@ def run_inference(
             stack_order=stack_order,
         )
     elif use_audio:
-        logger.warning("AVSRモードですが音声入力が提供されませんでした。映像のみで推論します。")
+        logger.warning(
+            "AVSRモードですが音声入力が提供されませんでした。映像のみで推論します。"
+        )
 
     instruction_ids = tokenizer(
-        f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_name}. Input:",
+        f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_code}. Input:",
         return_tensors="pt",
     ).input_ids[0]
 
@@ -347,8 +327,8 @@ def run_inference(
         video_frames=video_frames,
         instruction=instruction_ids,
         roman_source="",
-        lang_id=lang_name,
-        zero_shot=(lang_name != "English"),
+        lang_id=lang_code,
+        zero_shot=(lang_code != "eng"),
         audio_features=audio_features,
         normalize_audio=normalize_audio,
     )
@@ -398,7 +378,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--video-path", type=Path, required=True)
     parser.add_argument("--audio-path", type=Path)
-    parser.add_argument("--lang", choices=ALLOWED_LANGUAGE_CODES, default="eng")
+    parser.add_argument("--lang", choices=SUPPORTED_LANGUAGE_CODES, default="eng")
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--av-romanizer-path", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
