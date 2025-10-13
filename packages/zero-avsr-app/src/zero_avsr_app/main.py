@@ -178,7 +178,7 @@ def main(
     """
 
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
-    logger = logging.getLogger("zavsr")
+    logger = logging.getLogger("zero_avsr_app")
 
     logger.info("Loading video frames from %s", video_path)
     raw_frames = load_video_frames(video_path)
@@ -269,7 +269,7 @@ def run_inference(
     mode: str = "avsr",
 ) -> List[str]:
     if logger is None:
-        logger = logging.getLogger("zavsr")
+        logger = logging.getLogger("zero_avsr_app")
 
     tokenizer, model, saved_cfg = _load_model_bundle(
         str(llm_path), str(av_romanizer_path), str(avhubert_path), str(model_path)
@@ -302,6 +302,15 @@ def run_inference(
     )
 
     use_audio = mode.lower() != "vsr"
+
+    if mode.lower() == "vsr":
+        saved_cfg.task.modalities = ["video"]
+        if hasattr(saved_cfg, "override") and "use_speech_embs" in saved_cfg.override:
+            saved_cfg.override.use_speech_embs = False
+    else:
+        saved_cfg.task.modalities = ["video", "audio"]
+        if hasattr(saved_cfg, "override") and "use_speech_embs" in saved_cfg.override:
+            saved_cfg.override.use_speech_embs = True
 
     audio_features: Optional[np.ndarray] = None
     if use_audio and audio_waveform is not None and audio_waveform.size > 0:

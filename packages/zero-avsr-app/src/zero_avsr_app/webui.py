@@ -71,7 +71,7 @@ def _create_predict_fn(
     model_path: Path,
     log_level: str,
 ):
-    logger = logging.getLogger("zavsr.webui")
+    logger = logging.getLogger("zero_avsr_app.webui")
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
     def _predict(
@@ -203,6 +203,7 @@ def main():
         f"override.av_romanizer_path={args.av_romanizer_path}",
         f"+model.w2v_path={args.avhubert_path}",
         "override.modalities=[video,audio]",
+        "override.use_speech_embs=true",
         f"common.user_dir={Path(__file__).resolve().parent}",
     ]
 
