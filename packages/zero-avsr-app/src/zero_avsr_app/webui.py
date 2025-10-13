@@ -1,9 +1,12 @@
 import argparse
 import logging
+import tempfile
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
+import cv2
 import gradio as gr
+import mediapipe as mp
 import numpy as np
 from hydra.experimental import compose, initialize_config_dir
 
@@ -12,7 +15,6 @@ from zero_avsr_app.main import (
     CONFIG_NAME,
     SUPPORTED_LANGUAGE_CODES,
     load_audio_waveform,
-    load_video_frames,
     run_inference,
 )
 
@@ -64,7 +66,123 @@ def _split_media(file_obj: Any) -> Tuple[Optional[Path], Optional[Path]]:
     return path, None
 
 
-def _create_predict_fn(
+def _extract_language_code(label: str) -> str:
+    code = label.split(" - ", 1)[0]
+    return code if code in LANGUAGE_NAME_BY_CODE else "eng"
+
+
+def extract_mouth_crops(
+    video_path: Path,
+    output_size: int = 96,
+    margin_ratio: float = 0.25,
+) -> Tuple[np.ndarray, str]:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError(f"動画を開けません: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not fps or np.isnan(fps):
+        fps = 25.0
+
+    lip_indices = sorted(
+        {
+            idx
+            for connection in mp.solutions.face_mesh.FACEMESH_LIPS
+            for idx in connection
+        }
+    )
+
+    frames_gray: list[np.ndarray] = []
+    frames_preview: list[np.ndarray] = []
+    last_bbox: Optional[Tuple[int, int, int, int]] = None
+
+    with mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=False,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    ) as face_mesh:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            h, w = frame.shape[:2]
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb)
+
+            bbox = None
+            if results.multi_face_landmarks:
+                landmark = results.multi_face_landmarks[0]
+                xs, ys = [], []
+                for idx in lip_indices:
+                    lm = landmark.landmark[idx]
+                    xs.append(int(lm.x * w))
+                    ys.append(int(lm.y * h))
+                if xs and ys:
+                    x_min, x_max = min(xs), max(xs)
+                    y_min, y_max = min(ys), max(ys)
+                    width = x_max - x_min
+                    height = y_max - y_min
+                    expand_x = max(int(width * margin_ratio), 1)
+                    expand_y = max(int(height * margin_ratio), 1)
+                    x_min = max(x_min - expand_x, 0)
+                    x_max = min(x_max + expand_x, w - 1)
+                    y_min = max(y_min - expand_y, 0)
+                    y_max = min(y_max + expand_y, h - 1)
+                    if x_max > x_min and y_max > y_min:
+                        bbox = (x_min, y_min, x_max, y_max)
+                        last_bbox = bbox
+
+            if bbox is None:
+                if last_bbox is not None:
+                    bbox = last_bbox
+                else:
+                    side = min(h, w) // 2
+                    cx, cy = w // 2, h // 2
+                    half = max(side // 2, 1)
+                    bbox = (
+                        max(cx - half, 0),
+                        max(cy - half, 0),
+                        min(cx + half, w - 1),
+                        min(cy + half, h - 1),
+                    )
+
+            x1, y1, x2, y2 = bbox
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                crop = frame
+
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            resized = cv2.resize(gray, (output_size, output_size), interpolation=cv2.INTER_AREA)
+            frames_gray.append(resized.astype(np.float32))
+            frames_preview.append(cv2.cvtColor(resized, cv2.COLOR_GRAY2BGR))
+
+    cap.release()
+
+    if not frames_gray:
+        raise ValueError("動画からフレームを取得できませんでした")
+
+    preview_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    preview_path = preview_file.name
+    preview_file.close()
+
+    writer = cv2.VideoWriter(
+        preview_path,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (output_size, output_size),
+    )
+    for frame_bgr in frames_preview:
+        writer.write(frame_bgr)
+    writer.release()
+
+    frames_array = np.stack(frames_gray, axis=0)
+    return frames_array, preview_path
+
+
+def _create_handlers(
     llm_path: str,
     av_romanizer_path: Path,
     avhubert_path: Path,
@@ -74,60 +192,80 @@ def _create_predict_fn(
     logger = logging.getLogger("zero_avsr_app.webui")
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
-    def _predict(
-        video_file,
-        language_code: str,
-        mode_label: str,
-    ) -> str:
+    def preprocess(video_file, language_label, mode_label):
+        lang_code = _extract_language_code(language_label)
+        if lang_code not in SUPPORTED_LANGUAGE_CODES:
+            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
+
         video_path, audio_path = _split_media(video_file)
         if video_path is None:
-            return "動画ファイルをアップロードしてください。"
-
-        if language_code not in SUPPORTED_LANGUAGE_CODES:
-            return "未対応の言語コードです。"
+            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
+
         try:
-            raw_frames = load_video_frames(video_path)
+            frames, preview_path = extract_mouth_crops(video_path)
         except Exception as exc:  # noqa: BLE001
-            logger.error("動画の読み込みに失敗しました: %s", exc)
-            return "動画の読み込みに失敗しました。"
+            logger.error("口元抽出に失敗しました: %s", exc)
+            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
 
         audio_waveform: Optional[np.ndarray] = None
         audio_rate: Optional[int] = None
-        if mode_key != "vsr":
+        audio_preview = gr.update(value=None, visible=False)
+
+        if mode_key == "avsr":
             audio_source = audio_path if audio_path is not None else video_path
             try:
                 audio_waveform, audio_rate = load_audio_waveform(
                     audio_source, sample_rate=None
                 )
+                audio_preview = gr.update(
+                    value=(audio_rate, audio_waveform),
+                    visible=True,
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("音声の抽出に失敗しました: %s", exc)
-                audio_waveform = None
-                audio_rate = None
 
-        outputs = run_inference(
-            video_frames=raw_frames,
-            audio_waveform=audio_waveform,
-            audio_rate=audio_rate,
-            lang=language_code,
-            llm_path=llm_path,
-            av_romanizer_path=av_romanizer_path,
-            avhubert_path=avhubert_path,
-            model_path=model_path,
-            logger=logger,
-            mode=mode_key,
-        )
+        state: Dict[str, Any] = {
+            "frames": frames,
+            "audio_waveform": audio_waveform,
+            "audio_rate": audio_rate,
+            "lang_code": lang_code,
+            "mode": mode_key,
+        }
+
+        return gr.update(value=preview_path, visible=True), audio_preview, state
+
+    def infer(processed_state):
+        if not processed_state:
+            return "前処理を実行してください。"
+
+        try:
+            outputs = run_inference(
+                video_frames=processed_state["frames"],
+                audio_waveform=processed_state.get("audio_waveform"),
+                audio_rate=processed_state.get("audio_rate"),
+                lang=processed_state["lang_code"],
+                llm_path=llm_path,
+                av_romanizer_path=av_romanizer_path,
+                avhubert_path=avhubert_path,
+                model_path=model_path,
+                logger=logger,
+                mode=processed_state["mode"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("推論に失敗しました: %s", exc)
+            return f"推論に失敗しました: {exc}"
 
         if not outputs:
             return "推論結果を取得できませんでした。"
-
         return outputs[0]
 
-    return _predict
+    return preprocess, infer
 
 
-def build_interface(predict_fn):
+def build_interface(handlers):
+    preprocess_fn, infer_fn = handlers
     lang_choices = [
         (code, f"{code} - {LANGUAGE_NAME_BY_CODE[code]}")
         for code in SUPPORTED_LANGUAGE_CODES
@@ -152,7 +290,19 @@ def build_interface(predict_fn):
                     sources=["upload", "webcam"],
                     format="mp4",
                 )
-                submit_btn = gr.Button("推論を実行")
+                preprocess_btn = gr.Button("前処理を実行")
+            with gr.Column():
+                preview_video = gr.Video(
+                    label="口元プレビュー",
+                    autoplay=True,
+                    visible=False,
+                )
+                audio_preview = gr.Audio(
+                    label="音声プレビュー",
+                    interactive=False,
+                    visible=False,
+                )
+                infer_btn = gr.Button("推論を実行")
             with gr.Column():
                 output_box = gr.Textbox(
                     label="生成結果",
@@ -160,17 +310,17 @@ def build_interface(predict_fn):
                     interactive=False,
                 )
 
-        def _convert_language_label(selected_label: str) -> str:
-            code = selected_label.split(" - ", 1)[0]
-            return code if code in LANGUAGE_NAME_BY_CODE else "eng"
+        processed_state = gr.State()
 
-        def _run(video, lang_label, mode_label):
-            lang_code = _convert_language_label(lang_label)
-            return predict_fn(video, lang_code, mode_label)
-
-        submit_btn.click(
-            _run,
+        preprocess_btn.click(
+            preprocess_fn,
             inputs=[video_input, lang_dropdown, mode_radio],
+            outputs=[preview_video, audio_preview, processed_state],
+        )
+
+        infer_btn.click(
+            infer_fn,
+            inputs=[processed_state],
             outputs=output_box,
         )
 
@@ -213,7 +363,7 @@ def main():
     model_cfg = getattr(cfg, "model", None)
     cfg_w2v = getattr(model_cfg, "w2v_path", None) if model_cfg is not None else None
 
-    predict_fn = _create_predict_fn(
+    preprocess_fn, infer_fn = _create_handlers(
         llm_path=cfg.override.llm_path,
         av_romanizer_path=Path(cfg.override.av_romanizer_path),
         avhubert_path=Path(cfg_w2v) if cfg_w2v else args.avhubert_path,
@@ -221,7 +371,7 @@ def main():
         log_level=args.log_level,
     )
 
-    interface = build_interface(predict_fn)
+    interface = build_interface((preprocess_fn, infer_fn))
     interface.launch(share=args.share)
 
 

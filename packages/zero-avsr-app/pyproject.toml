@@ -4,7 +4,9 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "mediapipe>=0.10.21",
     "memray>=1.18.0",
+    "opencv-python>=4.8.1.78",
     "transformers>=4.57.0",
     "zero-avsr",
 ]
