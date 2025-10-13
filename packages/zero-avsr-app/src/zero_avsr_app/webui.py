@@ -3,10 +3,10 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-import numpy as np
-
 import gradio as gr
+import numpy as np
 from hydra.experimental import compose, initialize_config_dir
+
 from zero_avsr_app.main import (
     CONFIG_DIR,
     CONFIG_NAME,
@@ -98,7 +98,9 @@ def _create_predict_fn(
         if mode_key != "vsr":
             audio_source = audio_path if audio_path is not None else video_path
             try:
-                audio_waveform, audio_rate = load_audio_waveform(audio_source, sample_rate=None)
+                audio_waveform, audio_rate = load_audio_waveform(
+                    audio_source, sample_rate=None
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("音声の抽出に失敗しました: %s", exc)
                 audio_waveform = None
@@ -108,7 +110,7 @@ def _create_predict_fn(
             video_frames=raw_frames,
             audio_waveform=audio_waveform,
             audio_rate=audio_rate,
-            lang_code=language_code,
+            lang=language_code,
             llm_path=llm_path,
             av_romanizer_path=av_romanizer_path,
             avhubert_path=avhubert_path,

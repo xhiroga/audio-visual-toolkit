@@ -203,7 +203,7 @@ def main(
         video_frames=raw_frames,
         audio_waveform=audio_waveform,
         audio_rate=audio_rate,
-        lang_code=lang,
+        lang=lang,
         llm_path=llm_path,
         av_romanizer_path=av_romanizer_path,
         avhubert_path=avhubert_path,
@@ -260,7 +260,7 @@ def run_inference(
     video_frames: np.ndarray,
     audio_waveform: Optional[np.ndarray],
     audio_rate: Optional[int],
-    lang_code: LanguageCode,
+    lang: LanguageCode,
     llm_path: Union[str, Path],
     av_romanizer_path: Path,
     avhubert_path: Path,
@@ -317,9 +317,12 @@ def run_inference(
         logger.warning(
             "AVSRモードですが音声入力が提供されませんでした。映像のみで推論します。"
         )
+    else:
+        logger.info("VSRモード：音声埋め込みは使用しません")
 
+    # https://github.com/xhiroga/zero-avsr/blob/d4ff1d12f7fd7111859673126e30684f9398dc3c/stage2/dataset.py#L304
     instruction_ids = tokenizer(
-        f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_code}. Input:",
+        f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang}. Input:",
         return_tensors="pt",
     ).input_ids[0]
 
@@ -327,8 +330,8 @@ def run_inference(
         video_frames=video_frames,
         instruction=instruction_ids,
         roman_source="",
-        lang_id=lang_code,
-        zero_shot=(lang_code != "eng"),
+        lang_id=lang,
+        zero_shot=(lang != "eng"),
         audio_features=audio_features,
         normalize_audio=normalize_audio,
     )
@@ -351,13 +354,18 @@ def run_inference(
             net_input["source"]["audio"] = net_input["source"]["audio"].half()
         model = model.half()
 
+    use_speech_embs_flag = audio_features is not None
+
     with torch.no_grad():
-        logger.info("Running model.generate")
+        logger.info(
+            "Running model.generate (use_speech_embs=%s)",
+            use_speech_embs_flag,
+        )
         hypotheses = model.generate(
             num_beams=2,
             temperature=0.3,
-            use_speech_embs=True,
-            use_roman_toks=False,
+            use_speech_embs=use_speech_embs_flag,
+            use_roman_toks=not use_speech_embs_flag,
             **net_input,
         )
 
@@ -405,6 +413,11 @@ if __name__ == "__main__":
             "override.modalities=[video,audio]"
             if args.mode == "avsr"
             else "override.modalities=[video]"
+        ),
+        (
+            "override.use_speech_embs=true"
+            if args.mode == "avsr"
+            else "override.use_speech_embs=false"
         ),
         f"common.user_dir={Path(__file__).resolve().parent}",
     ]
