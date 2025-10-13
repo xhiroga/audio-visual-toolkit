@@ -35,3 +35,9 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 ```sh
 uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/vis' visualize-model --model-path $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt
 ```
+
+### Run Zero-AVSR with mp4 file
+
+```sh
+uvx --python 3.11 
+```

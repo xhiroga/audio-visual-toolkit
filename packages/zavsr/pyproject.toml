@@ -1,0 +1,13 @@
+[project]
+name = "zavsr"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "transformers>=4.57.0",
+    "zero-avsr",
+]
+
+[tool.uv.sources]
+zero-avsr = { git = "https://github.com/xhiroga/zero-avsr", rev = "packaged" }
