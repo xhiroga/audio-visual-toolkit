@@ -13,6 +13,7 @@ import librosa
 import numpy as np
 import stage2  # noqa: F401  # タスク登録の副作用が必要
 import torch
+import torch.nn.functional as F
 from fairseq import checkpoint_utils, utils
 from hydra.experimental import compose, initialize_config_dir
 from python_speech_features import logfbank
@@ -40,6 +41,7 @@ def build_net_input_from_video(
     lang_id: Union[int, str],
     zero_shot: bool,
     audio_features: Optional[np.ndarray] = None,
+    normalize_audio: bool = False,
 ) -> NetInput:
     """Convert raw features into the minimal net_input structure expected by zero-AVSR."""
 
@@ -58,9 +60,10 @@ def build_net_input_from_video(
     else:
         if audio_features.ndim != 2:
             raise ValueError("audio_features must be a (time, feature) array")
-        audio_tensor = (
-            torch.from_numpy(audio_features).float().transpose(0, 1).unsqueeze(0)
-        )
+        audio_tensor_2d = torch.from_numpy(audio_features).float()
+        if normalize_audio:
+            audio_tensor_2d = F.layer_norm(audio_tensor_2d, audio_tensor_2d.shape[1:])
+        audio_tensor = audio_tensor_2d.transpose(0, 1).unsqueeze(0)
         audio_time = audio_tensor.shape[-1]
         if audio_time < time_length:
             pad = torch.zeros(
@@ -80,7 +83,7 @@ def build_net_input_from_video(
         "instruction": [instruction],
         "roman_sources": [roman_source],
         "langs": [str(lang_id)],
-        "zero_shot_samples": torch.tensor([int(zero_shot)], dtype=torch.long),
+        "zero_shot_samples": torch.tensor([bool(zero_shot)], dtype=torch.bool),
     }
 
     return {"source": source, "padding_mask": padding_mask}
@@ -197,14 +200,16 @@ def main(
     crop_size = getattr(saved_cfg.task, "image_crop_size", 88)
     image_mean = getattr(saved_cfg.task, "image_mean", 0.421)
     image_std = getattr(saved_cfg.task, "image_std", 0.165)
+    normalize_audio = getattr(saved_cfg.task, "normalize", False)
 
     logger.debug(
-        "Preprocess params: sample_rate=%s stack_order=%s crop_size=%s image_mean=%s image_std=%s",
+        "Preprocess params: sample_rate=%s stack_order=%s crop_size=%s image_mean=%s image_std=%s normalize_audio=%s",
         sample_rate,
         stack_order,
         crop_size,
         image_mean,
         image_std,
+        normalize_audio,
     )
 
     logger.info("Loading video frames from %s", video_path)
@@ -239,6 +244,7 @@ def main(
         lang_id=lang_name,
         zero_shot=False,
         audio_features=audio_features,
+        normalize_audio=normalize_audio,
     )
 
     logger.debug(
@@ -301,7 +307,11 @@ if __name__ == "__main__":
         f"override.llm_path={args.llm_path}",
         f"override.av_romanizer_path={args.av_romanizer_path}",
         f"+model.w2v_path={args.avhubert_path}",
-        ("override.modalities=[video,audio]" if args.audio_path else "override.modalities=[video]"),
+        (
+            "override.modalities=[video,audio]"
+            if args.audio_path
+            else "override.modalities=[video]"
+        ),
         f"common.user_dir={Path(__file__).resolve().parent}",
     ]
 
