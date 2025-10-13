@@ -147,6 +147,7 @@ def load_audio_logfbank(
 def main(
     video_path: Path,
     audio_path: Optional[Path],
+    lang: Optional[str],
     llm_path: str,
     av_romanizer_path: Path,
     avhubert_path: Path,
@@ -225,7 +226,7 @@ def main(
     else:
         logger.info("Audio path not provided; skipping audio features")
 
-    lang_name = "English"
+    lang_name = lang or "English"
     instruction_ids = tokenizer(
         f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_name}. Input:",
         return_tensors="pt",
@@ -283,6 +284,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--video-path", type=Path, required=True)
     parser.add_argument("--audio-path", type=Path)
+    parser.add_argument("--lang")
     parser.add_argument("--llm-path", required=True)
     parser.add_argument("--av-romanizer-path", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
@@ -312,6 +314,7 @@ if __name__ == "__main__":
     main(
         video_path=args.video_path,
         audio_path=args.audio_path,
+        lang=args.lang,
         llm_path=cfg.override.llm_path,
         av_romanizer_path=Path(cfg.override.av_romanizer_path),
         avhubert_path=Path(cfg_w2v) if cfg_w2v else args.avhubert_path,
