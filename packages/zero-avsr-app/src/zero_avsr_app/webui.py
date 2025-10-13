@@ -1,7 +1,9 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
+
+import numpy as np
 
 import gradio as gr
 from hydra.experimental import compose, initialize_config_dir
@@ -10,6 +12,8 @@ from zero_avsr_app.main import (
     CONFIG_DIR,
     CONFIG_NAME,
     LANGUAGE_NAME_BY_CODE,
+    load_audio_waveform,
+    load_video_frames,
     run_inference,
 )
 
@@ -24,6 +28,13 @@ def _maybe_path(file_obj: Any) -> Optional[Path]:
         return None
     if isinstance(file_obj, (str, Path)):
         return Path(file_obj)
+    if isinstance(file_obj, tuple) and file_obj:
+        # Video component may return (video_path, audio_path)
+        for item in file_obj:
+            candidate = _maybe_path(item)
+            if candidate is not None:
+                return candidate
+        return None
     if isinstance(file_obj, dict) and "name" in file_obj:
         return Path(file_obj["name"])
     path_attr = getattr(file_obj, "path", None)
@@ -33,6 +44,13 @@ def _maybe_path(file_obj: Any) -> Optional[Path]:
     if name:
         return Path(name)
     return None
+
+
+def _split_media(file_obj: Any) -> Tuple[Optional[Path], Optional[Path]]:
+    if isinstance(file_obj, tuple) and len(file_obj) == 2:
+        return _maybe_path(file_obj[0]), _maybe_path(file_obj[1])
+    path = _maybe_path(file_obj)
+    return path, None
 
 
 def _create_predict_fn(
@@ -47,11 +65,10 @@ def _create_predict_fn(
 
     def _predict(
         video_file,
-        audio_file,
         language_code: str,
         mode_label: str,
     ) -> str:
-        video_path = _maybe_path(video_file)
+        video_path, audio_path = _split_media(video_file)
         if video_path is None:
             return "動画ファイルをアップロードしてください。"
 
@@ -59,17 +76,27 @@ def _create_predict_fn(
             return "未対応の言語コードです。"
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
-        audio_path: Optional[Path]
-        if mode_key == "avsr":
-            audio_path = _maybe_path(audio_file)
-            if audio_path is None:
-                return "AVSRモードでは音声ファイルのアップロードが必要です。"
-        else:
-            audio_path = None
+        try:
+            raw_frames = load_video_frames(video_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("動画の読み込みに失敗しました: %s", exc)
+            return "動画の読み込みに失敗しました。"
+
+        audio_waveform: Optional[np.ndarray] = None
+        audio_rate: Optional[int] = None
+        if mode_key != "vsr":
+            audio_source = audio_path if audio_path is not None else video_path
+            try:
+                audio_waveform, audio_rate = load_audio_waveform(audio_source, sample_rate=None)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("音声の抽出に失敗しました: %s", exc)
+                audio_waveform = None
+                audio_rate = None
 
         outputs = run_inference(
-            video_path=video_path,
-            audio_path=audio_path,
+            video_frames=raw_frames,
+            audio_waveform=audio_waveform,
+            audio_rate=audio_rate,
             lang_code=language_code,
             llm_path=llm_path,
             av_romanizer_path=av_romanizer_path,
@@ -107,13 +134,10 @@ def build_interface(predict_fn):
                     value=f"eng - {LANGUAGE_NAME_BY_CODE['eng']}",
                     label="言語",
                 )
-                video_input = gr.File(
+                video_input = gr.Video(
                     label="動画 (MP4)",
-                    file_types=["video"],
-                )
-                audio_input = gr.File(
-                    file_types=["audio"],
-                    label="音声 (WAV, AVSRモード時必須)",
+                    sources=["upload", "webcam"],
+                    format="mp4",
                 )
                 submit_btn = gr.Button("推論を実行")
             with gr.Column():
@@ -127,24 +151,14 @@ def build_interface(predict_fn):
             code = selected_label.split(" - ", 1)[0]
             return code if code in LANGUAGE_NAME_BY_CODE else "eng"
 
-        def _run(video, audio, lang_label, mode_label):
+        def _run(video, lang_label, mode_label):
             lang_code = _convert_language_label(lang_label)
-            return predict_fn(video, audio, lang_code, mode_label)
-
-        def _toggle_audio(mode_label):
-            hide = mode_label == MODE_LABELS["vsr"]
-            return gr.update(visible=not hide, interactive=not hide)
+            return predict_fn(video, lang_code, mode_label)
 
         submit_btn.click(
             _run,
-            inputs=[video_input, audio_input, lang_dropdown, mode_radio],
+            inputs=[video_input, lang_dropdown, mode_radio],
             outputs=output_box,
-        )
-
-        mode_radio.change(
-            _toggle_audio,
-            inputs=mode_radio,
-            outputs=audio_input,
         )
 
     return demo

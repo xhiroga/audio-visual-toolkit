@@ -7,7 +7,7 @@ import argparse
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, TypedDict, Union
+from typing import List, Optional, Tuple, TypedDict, Union
 
 import cv2
 import librosa
@@ -151,14 +151,25 @@ def preprocess_video(
     return frames.astype(np.float32)
 
 
-def load_audio_logfbank(
-    audio_path: Path, sample_rate: int, stack_order: int
-) -> np.ndarray:
-    audio, sr = librosa.load(str(audio_path), sr=sample_rate, mono=True)
+def load_audio_waveform(
+    media_path: Path, sample_rate: Optional[int] = None
+) -> Tuple[np.ndarray, int]:
+    audio, sr = librosa.load(str(media_path), sr=sample_rate, mono=True)
     if audio.size == 0:
-        raise ValueError(f"音声トラックを取得できませんでした: {audio_path}")
+        raise ValueError(f"音声トラックを取得できませんでした: {media_path}")
+    return audio.astype(np.float32), sr
 
-    feats = logfbank(audio, samplerate=sample_rate).astype(np.float32)
+
+def waveform_to_logfbank(
+    audio: np.ndarray,
+    current_sr: int,
+    target_sr: int,
+    stack_order: int,
+) -> np.ndarray:
+    if current_sr != target_sr:
+        audio = librosa.resample(audio, orig_sr=current_sr, target_sr=target_sr)
+        current_sr = target_sr
+    feats = logfbank(audio, samplerate=current_sr).astype(np.float32)
     feats = stack_audio_features(feats, stack_order)
     return feats
 
@@ -181,9 +192,27 @@ def main(
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
     logger = logging.getLogger("zavsr")
 
+    logger.info("Loading video frames from %s", video_path)
+    raw_frames = load_video_frames(video_path)
+
+    audio_waveform: Optional[np.ndarray] = None
+    audio_rate: Optional[int] = None
+    if mode.lower() != "vsr":
+        audio_source = audio_path if audio_path is not None else video_path
+        try:
+            logger.info("Extracting audio waveform from %s", audio_source)
+            audio_waveform, audio_rate = load_audio_waveform(audio_source, sample_rate=None)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("音声波形の取得に失敗しました: %s", exc)
+            audio_waveform = None
+            audio_rate = None
+    else:
+        logger.info("VSRモードで推論します（音声を使用しません）")
+
     decoded = run_inference(
-        video_path=video_path,
-        audio_path=audio_path,
+        video_frames=raw_frames,
+        audio_waveform=audio_waveform,
+        audio_rate=audio_rate,
         lang_code=lang,
         llm_path=llm_path,
         av_romanizer_path=av_romanizer_path,
@@ -248,8 +277,9 @@ def _resolve_language(lang_code: Optional[str]) -> str:
 
 
 def run_inference(
-    video_path: Path,
-    audio_path: Optional[Path],
+    video_frames: np.ndarray,
+    audio_waveform: Optional[np.ndarray],
+    audio_rate: Optional[int],
     lang_code: Optional[str],
     llm_path: Union[str, Path],
     av_romanizer_path: Path,
@@ -286,28 +316,27 @@ def run_inference(
         normalize_audio,
     )
 
-    logger.info("Loading video frames from %s", video_path)
-    raw_frames = load_video_frames(video_path)
+    if video_frames.ndim != 3:
+        raise ValueError("video_frames must be a (time, height, width) array")
+
     video_frames = preprocess_video(
-        raw_frames, crop_size=crop_size, mean=image_mean, std=image_std
+        video_frames, crop_size=crop_size, mean=image_mean, std=image_std
     )
 
-    use_audio = mode.lower() != "vsr" and audio_path is not None
+    use_audio = mode.lower() != "vsr"
 
     audio_features: Optional[np.ndarray] = None
-    if use_audio:
-        try:
-            logger.info("Extracting audio features from %s", audio_path)
-            audio_features = load_audio_logfbank(
-                audio_path, sample_rate=sample_rate, stack_order=stack_order
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("音声特徴量の抽出に失敗しました: %s", exc)
-            audio_features = None
-    elif mode.lower() == "avsr" and audio_path is None:
-        logger.warning("AVSRモードですが音声ファイルが指定されていません。映像のみで推論します。")
-    else:
-        logger.info("VSRモードで推論します（音声を使用しません）")
+    if use_audio and audio_waveform is not None and audio_waveform.size > 0:
+        if audio_rate is None:
+            audio_rate = sample_rate
+        audio_features = waveform_to_logfbank(
+            audio_waveform,
+            current_sr=audio_rate,
+            target_sr=sample_rate,
+            stack_order=stack_order,
+        )
+    elif use_audio:
+        logger.warning("AVSRモードですが音声入力が提供されませんでした。映像のみで推論します。")
 
     instruction_ids = tokenizer(
         f"Given romanized transcriptions extracted from audio-visual materials, back-transliterate them into the original script of {lang_name}. Input:",
@@ -394,7 +423,7 @@ if __name__ == "__main__":
         f"+model.w2v_path={args.avhubert_path}",
         (
             "override.modalities=[video,audio]"
-            if args.audio_path
+            if args.mode == "avsr"
             else "override.modalities=[video]"
         ),
         f"common.user_dir={Path(__file__).resolve().parent}",
