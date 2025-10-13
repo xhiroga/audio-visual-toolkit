@@ -36,6 +36,13 @@ uvx --python 3.12 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/fairseq-toolkit' dump --model-path $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt
 ```
 
+### Compare Fairseq Models
+
+```console
+% uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/fairseq-toolkit' compare --model $ROOT/pretrained_models/avhubert/large_vox_iter5.pt $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt --remove-prefix "av_romanizer.w2v_model." --out-dir ./out
+Saved to ./out/large_vox_iter5_pt-vs-checkpoint_best_pt.html
+```
+
 ### Run Zero-AVSR with mp4 file
 
 ```sh
