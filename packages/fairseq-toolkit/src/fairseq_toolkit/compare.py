@@ -201,12 +201,12 @@ def _normalize_keys(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare two fairseq checkpoints")
     parser.add_argument(
-        "--model-1",
+        "--model1",
         required=True,
         help="Checkpoint A (e.g. pretrained)",
     )
     parser.add_argument(
-        "--model-2",
+        "--model2",
         required=True,
         help="Checkpoint B (e.g. finetuned)",
     )
@@ -226,8 +226,8 @@ def main() -> None:
     out_dir = Path(args.out_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model1_path = Path(args.model_1).expanduser().resolve()
-    model2_path = Path(args.model_2).expanduser().resolve()
+    model1_path = Path(args.model1).expanduser().resolve()
+    model2_path = Path(args.model2).expanduser().resolve()
 
     if not model1_path.exists():
         raise SystemExit(f"Checkpoint not found: {model1_path}")
@@ -241,8 +241,8 @@ def main() -> None:
     model2_column = f"model 2 ({model2_path.name})"
 
     remove_prefixes = tuple(args.remove_prefix or [])
-    model1_entries = _normalize_keys(model1_state, remove_prefixes, role="model_1")
-    model2_entries = _normalize_keys(model2_state, remove_prefixes, role="model_2")
+    model1_entries = _normalize_keys(model1_state, remove_prefixes, role="model1")
+    model2_entries = _normalize_keys(model2_state, remove_prefixes, role="model2")
 
     all_keys = sorted(set(model1_entries.keys()) | set(model2_entries.keys()))
 
