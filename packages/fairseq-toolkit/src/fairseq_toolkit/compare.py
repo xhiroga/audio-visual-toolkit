@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import pandas as pd
 import torch
 from fairseq.data import dictionary as fairseq_dictionary
 
@@ -107,6 +108,75 @@ def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str])
             writer.writerow(row)
 
 
+def _format_float(value: float | None, precision: int = 6) -> str:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    return f"{value:.{precision}g}"
+
+
+def _write_html_report(
+    df: pd.DataFrame,
+    path: Path,
+    *,
+    model1_column: str,
+    model2_column: str,
+) -> None:
+    numeric_cols = [
+        "delta_l2",
+        "baseline_l2",
+        "updated_l2",
+        "relative_delta",
+        "cosine_similarity",
+        "max_abs_delta",
+        "numel",
+    ]
+
+    present_cols = [col for col in numeric_cols if col in df.columns]
+    for col in present_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    styler = df.style.format(
+        {
+            "delta_l2": _format_float,
+            "baseline_l2": _format_float,
+            "updated_l2": _format_float,
+            "relative_delta": _format_float,
+            "cosine_similarity": _format_float,
+            "max_abs_delta": _format_float,
+        }
+    )
+
+    if "relative_delta" in df:
+        styler = styler.bar(subset=["relative_delta"], color="#ffb347")
+    if "cosine_similarity" in df:
+        styler = styler.background_gradient(subset=["cosine_similarity"], cmap="RdYlGn")
+
+    html = styler.to_html()
+    template = f"""
+<!DOCTYPE html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <title>Checkpoint Parameter Comparison</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; margin: 2rem; }}
+      h1 {{ margin-bottom: 1rem; }}
+      .summary {{ margin-bottom: 1.5rem; }}
+      table {{ border-collapse: collapse; width: 100%; }}
+      th, td {{ border: 1px solid #ddd; padding: 0.4rem 0.6rem; }}
+      th {{ background: #f8f8f8; position: sticky; top: 0; }}
+    </style>
+  </head>
+  <body>
+    <h1>Checkpoint Parameter Comparison</h1>
+    <p class=\"summary\">Columns: {model1_column}, {model2_column}</p>
+    {html}
+  </body>
+</html>
+"""
+    path.write_text(template, encoding="utf-8")
+
+
 def _normalize_keys(
     state: dict[str, object], prefixes: tuple[str, ...], *, role: str
 ) -> dict[str, tuple[str, object]]:
@@ -131,11 +201,14 @@ def _normalize_keys(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare two fairseq checkpoints")
     parser.add_argument(
-        "--model",
-        nargs=2,
-        metavar=("BASE", "UPDATED"),
+        "--model-1",
         required=True,
-        help="Paths to the two checkpoints to compare",
+        help="Checkpoint A (e.g. pretrained)",
+    )
+    parser.add_argument(
+        "--model-2",
+        required=True,
+        help="Checkpoint B (e.g. finetuned)",
     )
     parser.add_argument(
         "--out-dir",
@@ -150,113 +223,110 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    base_path = Path(args.model[0]).expanduser().resolve()
-    updated_path = Path(args.model[1]).expanduser().resolve()
     out_dir = Path(args.out_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if not base_path.exists():
-        raise SystemExit(f"Base checkpoint not found: {base_path}")
-    if not updated_path.exists():
-        raise SystemExit(f"Updated checkpoint not found: {updated_path}")
+    model1_path = Path(args.model_1).expanduser().resolve()
+    model2_path = Path(args.model_2).expanduser().resolve()
 
-    base_state = _load_state(base_path)
-    updated_state = _load_state(updated_path)
+    if not model1_path.exists():
+        raise SystemExit(f"Checkpoint not found: {model1_path}")
+    if not model2_path.exists():
+        raise SystemExit(f"Checkpoint not found: {model2_path}")
+
+    model1_state = _load_state(model1_path)
+    model2_state = _load_state(model2_path)
+
+    model1_column = f"model 1 ({model1_path.name})"
+    model2_column = f"model 2 ({model2_path.name})"
 
     remove_prefixes = tuple(args.remove_prefix or [])
-    base_entries = _normalize_keys(base_state, remove_prefixes, role="base")
-    updated_entries = _normalize_keys(updated_state, remove_prefixes, role="updated")
+    model1_entries = _normalize_keys(model1_state, remove_prefixes, role="model_1")
+    model2_entries = _normalize_keys(model2_state, remove_prefixes, role="model_2")
 
-    all_keys = sorted(set(base_entries.keys()) | set(updated_entries.keys()))
+    all_keys = sorted(set(model1_entries.keys()) | set(model2_entries.keys()))
 
     parameter_rows: list[dict[str, object]] = []
 
     common_tensor_count = 0
-    only_in_base = 0
-    only_in_updated = 0
+    only_in_model1 = 0
+    only_in_model2 = 0
     mismatched_types = 0
     shape_mismatches = 0
 
     for key in all_keys:
-        base_entry = base_entries.get(key)
-        updated_entry = updated_entries.get(key)
+        model1_entry = model1_entries.get(key)
+        model2_entry = model2_entries.get(key)
 
-        if updated_entry is None:
-            only_in_base += 1
-            assert base_entry is not None
-            base_name, base_value = base_entry
-            base_shape = None
-            base_dtype = None
-            if isinstance(base_value, torch.Tensor):
-                base_shape = tuple(base_value.shape)
-                base_dtype = str(base_value.dtype)
+        if model2_entry is None:
+            only_in_model1 += 1
+            assert model1_entry is not None
+            model1_name, model1_value = model1_entry
+            model1_shape = None
+            model1_dtype = None
+            if isinstance(model1_value, torch.Tensor):
+                model1_shape = tuple(model1_value.shape)
+                model1_dtype = str(model1_value.dtype)
             parameter_rows.append(
                 {
                     "name": key,
-                    "base_name": base_name,
-                    "updated_name": None,
-                    "status": "only_in_base",
-                    "value_type": type(base_value).__name__ if base_value is not None else None,
-                    "dtype": base_dtype,
-                    "shape": base_shape,
+                    model1_column: model1_name,
+                    model2_column: None,
+                    "dtype": model1_dtype,
+                    "shape": model1_shape,
+                    "message": "missing from model 2",
                 }
             )
             continue
 
-        if base_entry is None:
-            only_in_updated += 1
-            assert updated_entry is not None
-            updated_name, updated_value = updated_entry
-            updated_shape = None
-            updated_dtype = None
-            if isinstance(updated_value, torch.Tensor):
-                updated_shape = tuple(updated_value.shape)
-                updated_dtype = str(updated_value.dtype)
+        if model1_entry is None:
+            only_in_model2 += 1
+            assert model2_entry is not None
+            model2_name, model2_value = model2_entry
+            model2_shape = None
+            model2_dtype = None
+            if isinstance(model2_value, torch.Tensor):
+                model2_shape = tuple(model2_value.shape)
+                model2_dtype = str(model2_value.dtype)
             parameter_rows.append(
                 {
                     "name": key,
-                    "base_name": None,
-                    "updated_name": updated_name,
-                    "status": "only_in_updated",
-                    "value_type": type(updated_value).__name__ if updated_value is not None else None,
-                    "dtype": updated_dtype,
-                    "shape": updated_shape,
+                    model1_column: None,
+                    model2_column: model2_name,
+                    "dtype": model2_dtype,
+                    "shape": model2_shape,
+                    "message": "missing from model 1",
                 }
             )
             continue
 
-        base_name, base_value = base_entry
-        updated_name, updated_value = updated_entry
+        model1_name, model1_value = model1_entry
+        model2_name, model2_value = model2_entry
 
-        if not isinstance(base_value, torch.Tensor) or not isinstance(updated_value, torch.Tensor):
+        if not isinstance(model1_value, torch.Tensor) or not isinstance(model2_value, torch.Tensor):
             mismatched_types += 1
             parameter_rows.append(
                 {
                     "name": key,
-                    "base_name": base_name,
-                    "updated_name": updated_name,
-                    "status": "non_tensor",
-                    "base_type": type(base_value).__name__ if base_value is not None else None,
-                    "updated_type": type(updated_value).__name__ if updated_value is not None else None,
-                    "base_value": repr(base_value) if base_value is not None else None,
-                    "updated_value": repr(updated_value) if updated_value is not None else None,
+                    model1_column: model1_name,
+                    model2_column: model2_name,
+                    "message": (
+                        f"non-tensor entry ({type(model1_value).__name__} vs {type(model2_value).__name__})"
+                    ),
                 }
             )
             continue
 
         try:
-            diff = _compute_diff(base_value, updated_value)
+            diff = _compute_diff(model1_value, model2_value)
         except ValueError as exc:
             shape_mismatches += 1
             parameter_rows.append(
                 {
                     "name": key,
-                    "base_name": base_name,
-                    "updated_name": updated_name,
-                    "status": "shape_mismatch",
+                    model1_column: model1_name,
+                    model2_column: model2_name,
                     "message": str(exc),
-                    "base_shape": tuple(base_value.shape),
-                    "updated_shape": tuple(updated_value.shape),
                 }
             )
             continue
@@ -265,9 +335,8 @@ def main() -> None:
         parameter_rows.append(
             {
                 "name": key,
-                "base_name": base_name,
-                "updated_name": updated_name,
-                "status": "matched",
+                model1_column: model1_name,
+                model2_column: model2_name,
                 "delta_l2": diff.delta_norm,
                 "baseline_l2": diff.base_norm,
                 "updated_l2": diff.new_norm,
@@ -282,9 +351,8 @@ def main() -> None:
 
     parameter_fieldnames = [
         "name",
-        "base_name",
-        "updated_name",
-        "status",
+        model1_column,
+        model2_column,
         "delta_l2",
         "baseline_l2",
         "updated_l2",
@@ -294,24 +362,34 @@ def main() -> None:
         "numel",
         "dtype",
         "shape",
-        "value_type",
-        "base_type",
-        "updated_type",
-        "base_value",
-        "updated_value",
         "message",
-        "base_shape",
-        "updated_shape",
     ]
 
-    _write_csv(out_dir / "parameters.csv", parameter_rows, parameter_fieldnames)
+    parameters_path = out_dir / "parameters.csv"
+    html_path = out_dir / "parameters.html"
+
+    _write_csv(parameters_path, parameter_rows, parameter_fieldnames)
+
+    try:
+        df = pd.read_csv(parameters_path)
+    except Exception as exc:  # pragma: no cover - propagate read errors
+        print(f"Failed to rebuild DataFrame for HTML output: {exc}")
+    else:
+        _write_html_report(
+            df,
+            html_path,
+            model1_column=model1_column,
+            model2_column=model2_column,
+        )
 
     print(f"Compared {common_tensor_count} shared tensor parameters")
-    print(f"Only in base: {only_in_base}")
-    print(f"Only in updated: {only_in_updated}")
+    print(f"Only in model 1: {only_in_model1}")
+    print(f"Only in model 2: {only_in_model2}")
     print(f"Non-tensor entries: {mismatched_types}")
     print(f"Shape mismatches: {shape_mismatches}")
-    print(f"Parameter metrics written to {out_dir / 'parameters.csv'}")
+    print(f"Parameter metrics written to {parameters_path}")
+    if html_path.exists():
+        print(f"HTML report written to {html_path}")
 
 
 if __name__ == "__main__":
