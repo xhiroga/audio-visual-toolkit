@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +10,14 @@ import pandas as pd
 import torch
 from fairseq.data import dictionary as fairseq_dictionary
 
+from .utils import (
+    display_path,
+    format_float,
+    infer_name,
+    slugify,
+    write_csv,
+    write_markdown_report,
+)
 
 @dataclass
 class TensorDiff:
@@ -99,21 +106,6 @@ def _compute_diff(base: torch.Tensor, new: torch.Tensor) -> TensorDiff:
     )
     return diff
 
-
-def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-
-def _format_float(value: float | None, precision: int = 6) -> str:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return ""
-    return f"{value:.{precision}g}"
-
-
 def _write_html_report(
     df: pd.DataFrame,
     path: Path,
@@ -137,12 +129,12 @@ def _write_html_report(
 
     styler = df.style.format(
         {
-            "delta_l2": _format_float,
-            "baseline_l2": _format_float,
-            "updated_l2": _format_float,
-            "relative_delta": _format_float,
-            "cosine_similarity": _format_float,
-            "max_abs_delta": _format_float,
+            "delta_l2": format_float,
+            "baseline_l2": format_float,
+            "updated_l2": format_float,
+            "relative_delta": format_float,
+            "cosine_similarity": format_float,
+            "max_abs_delta": format_float,
         }
     )
 
@@ -237,8 +229,15 @@ def main() -> None:
     model1_state = _load_state(model1_path)
     model2_state = _load_state(model2_path)
 
-    model1_column = f"model 1 ({model1_path.name})"
-    model2_column = f"model 2 ({model2_path.name})"
+    model1_name = infer_name(str(model1_path))
+    model2_name = infer_name(str(model2_path))
+
+    model1_slug = slugify(model1_name)
+    model2_slug = slugify(model2_name)
+    comparison_slug = f"{model1_slug}-vs-{model2_slug}"
+
+    model1_column = f"model 1 ({model1_name})"
+    model2_column = f"model 2 ({model2_name})"
 
     remove_prefixes = tuple(args.remove_prefix or [])
     model1_entries = _normalize_keys(model1_state, remove_prefixes, role="model1")
@@ -365,10 +364,11 @@ def main() -> None:
         "message",
     ]
 
-    parameters_path = out_dir / "parameters.csv"
-    html_path = out_dir / "parameters.html"
+    parameters_path = out_dir / f"{comparison_slug}.csv"
+    html_path = out_dir / f"{comparison_slug}.html"
+    markdown_path = out_dir / f"{comparison_slug}.md"
 
-    _write_csv(parameters_path, parameter_rows, parameter_fieldnames)
+    write_csv(parameters_path, parameter_rows, parameter_fieldnames)
 
     try:
         df = pd.read_csv(parameters_path)
@@ -381,15 +381,48 @@ def main() -> None:
             model1_column=model1_column,
             model2_column=model2_column,
         )
+        columns_order = [
+            "name",
+            model1_column,
+            model2_column,
+            "delta_l2",
+            "relative_delta",
+            "cosine_similarity",
+            "max_abs_delta",
+            "baseline_l2",
+            "updated_l2",
+            "numel",
+            "dtype",
+            "shape",
+            "message",
+        ]
+        available_columns = [col for col in columns_order if col in df.columns]
+        if available_columns:
+            write_markdown_report(
+                df[available_columns],
+                markdown_path,
+                title="Checkpoint Parameter Comparison",
+                columns=available_columns,
+                summary_lines=[
+                    f"- Model 1: `{model1_column}`",
+                    f"- Model 2: `{model2_column}`",
+                ],
+            )
 
     print(f"Compared {common_tensor_count} shared tensor parameters")
     print(f"Only in model 1: {only_in_model1}")
     print(f"Only in model 2: {only_in_model2}")
     print(f"Non-tensor entries: {mismatched_types}")
     print(f"Shape mismatches: {shape_mismatches}")
-    print(f"Parameter metrics written to {parameters_path}")
+    parameters_display = display_path(parameters_path)
+    html_display = display_path(html_path)
+    markdown_display = display_path(markdown_path)
+
+    print(f"Parameter metrics written to {parameters_display}")
     if html_path.exists():
-        print(f"HTML report written to {html_path}")
+        print(f"HTML report written to {html_display}")
+    if markdown_path.exists():
+        print(f"Markdown report written to {markdown_display}")
 
 
 if __name__ == "__main__":

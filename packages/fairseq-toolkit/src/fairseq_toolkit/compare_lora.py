@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 import torch
 
 from fairseq.data import dictionary as fairseq_dictionary  # type: ignore
+
+from .utils import (
+    display_path,
+    format_float,
+    infer_name,
+    slugify,
+    write_csv,
+    write_markdown_report,
+)
 
 
 @dataclass
@@ -179,7 +186,6 @@ def _collect_lora_modules(state: dict[str, torch.Tensor]) -> dict[str, LoraFacto
             entry.scaling = _to_scalar(tensor)
     return modules
 
-
 def _candidate_base_keys(prefix: str) -> list[str]:
     candidates = [f"{prefix}.weight"]
     stripped = prefix
@@ -293,20 +299,6 @@ def _materialize_delta(entry: LoraFactors) -> tuple[torch.Tensor, dict[str, obje
     return delta, metadata
 
 
-def _write_csv(path: Path, rows: list[dict[str, object]], fieldnames: list[str]) -> None:
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-
-def _format_float(value: float | None, precision: int = 6) -> str:
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return ""
-    return f"{value:.{precision}g}"
-
-
 def _write_html_report(
     df: pd.DataFrame,
     path: Path,
@@ -332,14 +324,14 @@ def _write_html_report(
 
     styler = df.style.format(
         {
-            "delta_l2": _format_float,
-            "baseline_l2": _format_float,
-            "updated_l2": _format_float,
-            "relative_delta": _format_float,
-            "cosine_similarity": _format_float,
-            "max_abs_delta": _format_float,
-            "delta_l1": _format_float,
-            "delta_density": _format_float,
+            "delta_l2": format_float,
+            "baseline_l2": format_float,
+            "updated_l2": format_float,
+            "relative_delta": format_float,
+            "cosine_similarity": format_float,
+            "max_abs_delta": format_float,
+            "delta_l1": format_float,
+            "delta_density": format_float,
         }
     )
 
@@ -373,7 +365,6 @@ def _write_html_report(
 """
     path.write_text(template, encoding="utf-8")
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare a base LLaMA checkpoint with a LoRA adapter")
     parser.add_argument("--llama-path", required=True, help="Hugging Face model ID or local checkpoint path")
@@ -395,8 +386,15 @@ def main() -> None:
 
     modules = _collect_lora_modules(adapter_state)
 
-    base_column = f"llama ({args.llama_path})"
-    adapter_column = f"lora ({Path(args.lora_path).name})"
+    base_name = infer_name(args.llama_path)
+    adapter_name = infer_name(args.lora_path)
+
+    base_slug = slugify(base_name)
+    adapter_slug = slugify(adapter_name)
+    comparison_slug = f"{base_slug}-vs-{adapter_slug}"
+
+    base_column = f"llama ({base_name})"
+    adapter_column = f"lora ({adapter_name})"
 
     rows: list[dict[str, object]] = []
 
@@ -527,10 +525,11 @@ def main() -> None:
         "message",
     ]
 
-    csv_path = out_dir / "parameters.csv"
-    html_path = out_dir / "parameters.html"
+    csv_path = out_dir / f"{comparison_slug}.csv"
+    html_path = out_dir / f"{comparison_slug}.html"
+    markdown_path = out_dir / f"{comparison_slug}.md"
 
-    _write_csv(csv_path, rows, fieldnames)
+    write_csv(csv_path, rows, fieldnames)
 
     try:
         df = pd.read_csv(csv_path)
@@ -543,13 +542,47 @@ def main() -> None:
             base_column=base_column,
             adapter_column=adapter_column,
         )
+        columns_order = [
+            "name",
+            base_column,
+            adapter_column,
+            "delta_l2",
+            "relative_delta",
+            "cosine_similarity",
+            "delta_l1",
+            "max_abs_delta",
+            "delta_density",
+            "numel",
+            "lora_rank",
+            "lora_alpha",
+            "lora_scale",
+            "message",
+        ]
+        available_columns = [col for col in columns_order if col in df.columns]
+        if available_columns:
+            write_markdown_report(
+                df[available_columns],
+                markdown_path,
+                title="LLaMA + LoRA Parameter Comparison",
+                columns=available_columns,
+                summary_lines=[
+                    f"- Baseline: `{base_column}`",
+                    f"- Adapter: `{adapter_column}`",
+                ],
+            )
 
     print(f"Compared {compared} LoRA-injected parameters")
     print(f"Missing base weights: {missing_base}")
     print(f"Skipped due to LoRA configuration issues: {missing_factors}")
-    print(f"Parameter metrics written to {csv_path}")
+    csv_display = display_path(csv_path)
+    html_display = display_path(html_path)
+    markdown_display = display_path(markdown_path)
+
+    print(f"Parameter metrics written to {csv_display}")
     if html_path.exists():
-        print(f"HTML report written to {html_path}")
+        print(f"HTML report written to {html_display}")
+    if markdown_path.exists():
+        print(f"Markdown report written to {markdown_display}")
 
 
 if __name__ == "__main__":  # pragma: no cover
