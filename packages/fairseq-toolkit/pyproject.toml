@@ -8,10 +8,12 @@ authors = [
 
 requires-python = ">=3.10"
 dependencies = [
+    "accelerate>=1.10.1",
     "fairseq>=0.12.2",
     "matplotlib>=3.10.7",
     "pandas>=2.3.3",
     "torch>=2.8.0",
+    "transformers>=4.57.1",
 ]
 
 [build-system]
@@ -21,6 +23,7 @@ build-backend = "uv_build"
 [project.scripts]
 compare = "fairseq_toolkit.compare:main"
 dump = "fairseq_toolkit.dump:main"
+compare-lora = "fairseq_toolkit.compare_lora:main"
 
 [tool.uv.sources]
 fairseq = { git = "https://github.com/facebookresearch/fairseq.git", rev = "v0.12.2" }

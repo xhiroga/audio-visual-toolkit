@@ -38,13 +38,16 @@ uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#su
 
 ### Compare Fairseq Models
 
-```console
-% uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/fairseq-toolkit' compare --model1 $ROOT/pretrained_models/avhubert/large_vox_iter5.pt --model2 $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt --remove-prefix "av_romanizer.w2v_model." --out-dir ./out
-Saved to ./out/large_vox_iter5_pt-vs-checkpoint_best_pt.html
+```sh
+uvx --python 3.10 --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/fairseq-toolkit' compare --model1 $ROOT/pretrained_models/avhubert/large_vox_iter5.pt --model2 $ROOT/pretrained_models/av-romanizer/all/checkpoint_best.pt --remove-prefix "av_romanizer.w2v_model." --out-dir ./out
+```
+
+### Compare Llama with/without LoRA
+
+```sh
+uvx --from 'git+https://github.com/xhiroga/audio-visual-toolkit#subdirectory=packages/fairseq-toolkit' compare-lora --llama-path meta-llama/Llama-3.2-3B --lora-path $ROOT/pretrained_models/zero-avsr/all/checkpoint_best.pt --out-dir ./out
 ```
 
 ### Run Zero-AVSR with mp4 file
 
-```sh
-uvx --python 3.11 
-```
+WIP...
