@@ -20,7 +20,19 @@ from zero_avsr_app.main import (
 
 MODE_LABELS = {
     "avsr": "Audio + Video (AVSR)",
+    "asr": "Audio Only (ASR)",
     "vsr": "Video Only (VSR)",
+}
+
+AUDIO_EXTENSIONS = {
+    ".wav",
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".m4a",
+    ".aac",
+    ".wma",
+    ".opus",
 }
 
 LANGUAGE_NAME_BY_CODE = {
@@ -64,6 +76,37 @@ def _split_media(file_obj: Any) -> Tuple[Optional[Path], Optional[Path]]:
         return _maybe_path(file_obj[0]), _maybe_path(file_obj[1])
     path = _maybe_path(file_obj)
     return path, None
+
+
+def _is_audio_file(path: Optional[Path]) -> bool:
+    if path is None:
+        return False
+    return path.suffix.lower() in AUDIO_EXTENSIONS
+
+
+def _blank_video_frames(frame_count: int = 1, size: int = 96) -> np.ndarray:
+    return np.zeros((frame_count, size, size), dtype=np.float32)
+
+
+def _extract_audio_content(
+    audio_value: Any,
+) -> Tuple[Optional[np.ndarray], Optional[int], Optional[Path]]:
+    if audio_value is None:
+        return None, None, None
+    if isinstance(audio_value, tuple):
+        if len(audio_value) == 2 and isinstance(audio_value[1], np.ndarray):
+            sample_rate = int(audio_value[0]) if audio_value[0] is not None else None
+            waveform = audio_value[1].astype(np.float32)
+            return waveform, sample_rate, None
+        for item in audio_value:
+            candidate = _maybe_path(item)
+            if candidate is not None:
+                return None, None, candidate
+        return None, None, None
+    path = _maybe_path(audio_value)
+    if path is not None:
+        return None, None, path
+    return None, None, None
 
 
 def _extract_language_code(label: str) -> str:
@@ -192,39 +235,77 @@ def _create_handlers(
     logger = logging.getLogger("zero_avsr_app.webui")
     logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
-    def preprocess(video_file, language_label, mode_label):
+    def preprocess(raw_media, mode_label, language_label):
         lang_code = _extract_language_code(language_label)
         if lang_code not in SUPPORTED_LANGUAGE_CODES:
-            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
-
-        video_path, audio_path = _split_media(video_file)
-        if video_path is None:
-            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
+            return (
+                gr.update(value=None),
+                gr.update(value=None),
+                None,
+            )
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
 
-        try:
-            frames, preview_path = extract_mouth_crops(video_path)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("口元抽出に失敗しました: %s", exc)
-            return gr.update(value=None, visible=False), gr.update(value=None, visible=False), None
+        selected_media = raw_media
+        if selected_media is None:
+            logger.warning("入力データが選択されていません")
+            return (
+                gr.update(value=None),
+                gr.update(value=None),
+                None,
+            )
+
+        video_path, audio_path = _split_media(selected_media)
+        candidate_path = _maybe_path(selected_media)
+
+        audio_only_input = _is_audio_file(candidate_path)
+        if audio_only_input:
+            audio_path = candidate_path
+            video_path = None
+
+        if video_path is None and mode_key != "asr":
+            logger.error("選択されたモードでは動画が必要です")
+            return (
+                gr.update(value=None),
+                gr.update(value=None),
+                None,
+            )
+
+        frames: np.ndarray
+        preview_path: Optional[str] = None
+        if video_path is not None:
+            try:
+                frames, preview_path = extract_mouth_crops(video_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("口元抽出に失敗しました: %s", exc)
+                return (
+                    gr.update(value=None),
+                    gr.update(value=None),
+                    None,
+                )
+        else:
+            frames = _blank_video_frames()
+            logger.info("音声のみ入力のためダミーの映像フレームを使用します")
 
         audio_waveform: Optional[np.ndarray] = None
         audio_rate: Optional[int] = None
-        audio_preview = gr.update(value=None, visible=False)
+        audio_preview = gr.update(value=None)
 
-        if mode_key == "avsr":
+        use_audio = mode_key in {"avsr", "asr"}
+        if use_audio:
             audio_source = audio_path if audio_path is not None else video_path
-            try:
-                audio_waveform, audio_rate = load_audio_waveform(
-                    audio_source, sample_rate=None
-                )
-                audio_preview = gr.update(
-                    value=(audio_rate, audio_waveform),
-                    visible=True,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("音声の抽出に失敗しました: %s", exc)
+            if audio_source is None:
+                logger.warning("音声入力が見つかりませんでした")
+            else:
+                try:
+                    audio_waveform, audio_rate = load_audio_waveform(
+                        audio_source, sample_rate=None
+                    )
+                    audio_preview = gr.update(
+                        value=(audio_rate, audio_waveform),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("音声の抽出に失敗しました: %s", exc)
 
         state: Dict[str, Any] = {
             "frames": frames,
@@ -232,26 +313,95 @@ def _create_handlers(
             "audio_rate": audio_rate,
             "lang_code": lang_code,
             "mode": mode_key,
+            "source": str(candidate_path) if candidate_path else None,
+            "preview_path": preview_path,
         }
 
-        return gr.update(value=preview_path, visible=True), audio_preview, state
+        video_update = gr.update(value=preview_path)
+        return video_update, audio_preview, state
 
-    def infer(processed_state):
-        if not processed_state:
-            return "前処理を実行してください。"
+    def infer(processed_state, processed_video_value, processed_audio_value, mode_label, language_label):
+        lang_code = _extract_language_code(language_label)
+        if lang_code not in SUPPORTED_LANGUAGE_CODES:
+            return "サポートされていない言語が選択されました。"
+
+        mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
+        use_video = mode_key != "asr"
+        use_audio = mode_key in {"avsr", "asr"}
+
+        frames: Optional[np.ndarray] = None
+        audio_waveform: Optional[np.ndarray] = None
+        audio_rate: Optional[int] = None
+
+        video_path: Optional[Path] = None
+        inferred_audio_path: Optional[Path] = None
+        if processed_video_value is not None:
+            video_path, inferred_audio_path = _split_media(processed_video_value)
+
+        uploaded_audio_waveform, uploaded_audio_rate, uploaded_audio_path = _extract_audio_content(
+            processed_audio_value
+        )
+
+        preview_path = processed_state.get("preview_path") if processed_state else None
+
+        if processed_state and preview_path and video_path and str(video_path) == preview_path:
+            frames = processed_state["frames"]
+            if use_audio and uploaded_audio_waveform is None and uploaded_audio_path is None:
+                audio_waveform = processed_state.get("audio_waveform")
+                audio_rate = processed_state.get("audio_rate")
+        elif processed_state and video_path is None:
+            frames = processed_state.get("frames")
+            if use_audio and uploaded_audio_waveform is None and uploaded_audio_path is None:
+                audio_waveform = processed_state.get("audio_waveform")
+                audio_rate = processed_state.get("audio_rate")
+        elif video_path is not None:
+            if use_video:
+                try:
+                    frames, _ = extract_mouth_crops(video_path)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("前処理済み映像の読み込みに失敗しました: %s", exc)
+                    return f"前処理済み映像の読み込みに失敗しました: {exc}"
+            else:
+                frames = _blank_video_frames()
+        else:
+            if use_video:
+                return "映像入力が見つかりません。前処理を実行するか、前処理済み映像をアップロードしてください。"
+            frames = _blank_video_frames()
+
+        if use_audio:
+            if uploaded_audio_waveform is not None:
+                audio_waveform = uploaded_audio_waveform
+                audio_rate = uploaded_audio_rate
+            else:
+                audio_source = uploaded_audio_path or inferred_audio_path or video_path
+                if audio_waveform is None and audio_source is not None:
+                    try:
+                        audio_waveform, audio_rate = load_audio_waveform(audio_source, sample_rate=None)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("音声の取得に失敗しました: %s", exc)
+                        audio_waveform = processed_state.get("audio_waveform") if processed_state else None
+                        audio_rate = processed_state.get("audio_rate") if processed_state else None
+            if audio_waveform is None:
+                logger.warning("音声入力が準備できませんでした")
+        else:
+            audio_waveform = None
+            audio_rate = None
+
+        if frames is None:
+            return "映像フレームを準備できませんでした。"
 
         try:
             outputs = run_inference(
-                video_frames=processed_state["frames"],
-                audio_waveform=processed_state.get("audio_waveform"),
-                audio_rate=processed_state.get("audio_rate"),
-                lang=processed_state["lang_code"],
+                video_frames=frames,
+                audio_waveform=audio_waveform,
+                audio_rate=audio_rate,
+                lang=lang_code,
                 llm_path=llm_path,
                 av_romanizer_path=av_romanizer_path,
                 avhubert_path=avhubert_path,
                 model_path=model_path,
                 logger=logger,
-                mode=processed_state["mode"],
+                mode=mode_key,
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("推論に失敗しました: %s", exc)
@@ -275,6 +425,15 @@ def build_interface(handlers):
         gr.Markdown("# Zero-AVSR Web UI")
         with gr.Row():
             with gr.Column():
+                gr.Markdown("### 1. 生の動画データを選択・録画")
+                raw_input = gr.Video(
+                    label="生データ (MP4)",
+                    sources=["upload", "webcam"],
+                    format="mp4",
+                )
+                preprocess_btn = gr.Button("前処理を実行")
+            with gr.Column():
+                gr.Markdown("### 2. 前処理したデータを選択・確認")
                 mode_radio = gr.Radio(
                     choices=list(MODE_LABELS.values()),
                     value=MODE_LABELS["avsr"],
@@ -285,25 +444,20 @@ def build_interface(handlers):
                     value=f"eng - {LANGUAGE_NAME_BY_CODE['eng']}",
                     label="言語",
                 )
-                video_input = gr.Video(
-                    label="動画 (MP4)",
-                    sources=["upload", "webcam"],
+                processed_video = gr.Video(
+                    label="前処理済み映像",
+                    sources=["upload"],
                     format="mp4",
+                    interactive=True,
                 )
-                preprocess_btn = gr.Button("前処理を実行")
-            with gr.Column():
-                preview_video = gr.Video(
-                    label="口元プレビュー",
-                    autoplay=True,
-                    visible=False,
-                )
-                audio_preview = gr.Audio(
-                    label="音声プレビュー",
-                    interactive=False,
-                    visible=False,
+                processed_audio = gr.Audio(
+                    label="前処理済み音声",
+                    sources=["upload"],
+                    interactive=True,
                 )
                 infer_btn = gr.Button("推論を実行")
             with gr.Column():
+                gr.Markdown("### 3. 文字起こしの生成結果")
                 output_box = gr.Textbox(
                     label="生成結果",
                     lines=6,
@@ -314,13 +468,13 @@ def build_interface(handlers):
 
         preprocess_btn.click(
             preprocess_fn,
-            inputs=[video_input, lang_dropdown, mode_radio],
-            outputs=[preview_video, audio_preview, processed_state],
+            inputs=[raw_input, mode_radio, lang_dropdown],
+            outputs=[processed_video, processed_audio, processed_state],
         )
 
         infer_btn.click(
             infer_fn,
-            inputs=[processed_state],
+            inputs=[processed_state, processed_video, processed_audio, mode_radio, lang_dropdown],
             outputs=output_box,
         )
 
