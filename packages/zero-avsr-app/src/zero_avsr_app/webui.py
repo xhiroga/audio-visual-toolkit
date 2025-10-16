@@ -429,7 +429,8 @@ def build_interface(handlers):
                 raw_input = gr.Video(
                     label="生データ (MP4)",
                     sources=["upload", "webcam"],
-                    format="mp4",
+                    format="webm",  # Chromeでも正しく音声を扱うために必要
+                    include_audio=True,
                 )
                 preprocess_btn = gr.Button("前処理を実行")
             with gr.Column():
