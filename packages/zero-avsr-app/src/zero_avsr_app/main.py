@@ -20,7 +20,7 @@ from hydra.experimental import compose, initialize_config_dir
 from python_speech_features import logfbank
 from transformers import AutoTokenizer
 
-LanguageCode = Literal["ara", "deu", "ell", "spa", "fra", "ita", "por", "rus", "eng"]
+LanguageCode = Literal["ara", "deu", "ell", "spa", "fra", "ita", "por", "rus", "eng", "jpn"]
 SUPPORTED_LANGUAGE_CODES = get_args(LanguageCode)
 
 

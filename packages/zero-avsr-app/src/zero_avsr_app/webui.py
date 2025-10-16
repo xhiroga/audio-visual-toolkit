@@ -20,7 +20,6 @@ from zero_avsr_app.main import (
 
 MODE_LABELS = {
     "avsr": "Audio + Video (AVSR)",
-    "asr": "Audio Only (ASR)",
     "vsr": "Video Only (VSR)",
 }
 
@@ -45,6 +44,7 @@ LANGUAGE_NAME_BY_CODE = {
     "por": "Portuguese",
     "rus": "Russian",
     "eng": "English",
+    "jpn": "Japanese (非公式)",
 }
 
 
@@ -245,6 +245,7 @@ def _create_handlers(
             )
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
+        requires_video = mode_key in {"avsr", "vsr"}
 
         selected_media = raw_media
         if selected_media is None:
@@ -263,7 +264,7 @@ def _create_handlers(
             audio_path = candidate_path
             video_path = None
 
-        if video_path is None and mode_key != "asr":
+        if video_path is None and requires_video:
             logger.error("選択されたモードでは動画が必要です")
             return (
                 gr.update(value=None),
@@ -291,7 +292,7 @@ def _create_handlers(
         audio_rate: Optional[int] = None
         audio_preview = gr.update(value=None)
 
-        use_audio = mode_key in {"avsr", "asr"}
+        use_audio = mode_key == "avsr"
         if use_audio:
             audio_source = audio_path if audio_path is not None else video_path
             if audio_source is None:
@@ -326,8 +327,8 @@ def _create_handlers(
             return "サポートされていない言語が選択されました。"
 
         mode_key = next((k for k, v in MODE_LABELS.items() if v == mode_label), "avsr")
-        use_video = mode_key != "asr"
-        use_audio = mode_key in {"avsr", "asr"}
+        requires_video = mode_key in {"avsr", "vsr"}
+        use_audio = mode_key == "avsr"
 
         frames: Optional[np.ndarray] = None
         audio_waveform: Optional[np.ndarray] = None
@@ -355,7 +356,7 @@ def _create_handlers(
                 audio_waveform = processed_state.get("audio_waveform")
                 audio_rate = processed_state.get("audio_rate")
         elif video_path is not None:
-            if use_video:
+            if requires_video:
                 try:
                     frames, _ = extract_mouth_crops(video_path)
                 except Exception as exc:  # noqa: BLE001
@@ -364,7 +365,7 @@ def _create_handlers(
             else:
                 frames = _blank_video_frames()
         else:
-            if use_video:
+            if requires_video:
                 return "映像入力が見つかりません。前処理を実行するか、前処理済み映像をアップロードしてください。"
             frames = _blank_video_frames()
 
