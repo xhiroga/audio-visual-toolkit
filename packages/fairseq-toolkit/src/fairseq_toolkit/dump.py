@@ -3,8 +3,6 @@ import json
 from pathlib import Path
 
 import torch
-from fairseq.data import dictionary as fairseq_dictionary
-
 
 def _summarize(value: object) -> object:
     if isinstance(value, torch.Tensor):
@@ -119,8 +117,7 @@ def main() -> None:
     ignore_keys = set(args.expand_ignore or [])
 
     try:
-        torch.serialization.add_safe_globals([fairseq_dictionary.Dictionary])
-        payload = torch.load(path, map_location="cpu", weights_only=True)
+        payload = torch.load(path, map_location="cpu")
     except Exception as exc:  # pragma: no cover - surface load errors to the user
         print(f"Failed to load checkpoint: {exc}")
         raise SystemExit(2)
