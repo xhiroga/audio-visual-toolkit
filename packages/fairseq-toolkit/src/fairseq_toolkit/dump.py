@@ -23,10 +23,10 @@ def _normalize(
     depth: int | None,
     *,
     sort_keys: bool = False,
-    ignore_keys: set[str] | None = None,
-    current_key: str | None = None,
+    fold_paths: set[tuple[str, ...]] | None = None,
+    current_path: tuple[str, ...] = (),
 ) -> object:
-    if ignore_keys and current_key in ignore_keys:
+    if fold_paths and current_path in fold_paths:
         return _summarize(value)
 
     if depth is not None and depth <= 0:
@@ -51,8 +51,8 @@ def _normalize(
                 v,
                 next_depth,
                 sort_keys=sort_keys,
-                ignore_keys=ignore_keys,
-                current_key=k,
+                fold_paths=fold_paths,
+                current_path=current_path + (k,),
             )
             for k, v in items
         }
@@ -62,8 +62,8 @@ def _normalize(
                 v,
                 next_depth,
                 sort_keys=sort_keys,
-                ignore_keys=ignore_keys,
-                current_key=current_key,
+                fold_paths=fold_paths,
+                current_path=current_path,
             )
             for v in value
         ]
@@ -73,8 +73,8 @@ def _normalize(
                 v,
                 next_depth,
                 sort_keys=sort_keys,
-                ignore_keys=ignore_keys,
-                current_key=current_key,
+                fold_paths=fold_paths,
+                current_path=current_path,
             )
             for v in value
         ]
@@ -83,8 +83,8 @@ def _normalize(
             vars(value),
             next_depth,
             sort_keys=sort_keys,
-            ignore_keys=ignore_keys,
-            current_key=current_key,
+            fold_paths=fold_paths,
+            current_path=current_path,
         )
     return value
 
@@ -101,10 +101,9 @@ def main() -> None:
         help="Maximum nesting depth to expand (use <=0 for unlimited)",
     )
     parser.add_argument(
-        "--expand-ignore",
-        nargs="*",
-        default=["model"],
-        help="Top-level keys to keep summarized regardless of depth",
+        "--fold-model-config",
+        action="store_true",
+        help="Summarize top-level model config instead of expanding it",
     )
     args = parser.parse_args()
 
@@ -114,7 +113,9 @@ def main() -> None:
         raise SystemExit(1)
 
     depth_arg = args.expand_depth if args.expand_depth > 0 else None
-    ignore_keys = set(args.expand_ignore or [])
+    fold_paths: set[tuple[str, ...]] = set()
+    if args.fold_model_config:
+        fold_paths.add(("model",))
 
     try:
         payload = torch.load(path, map_location="cpu")
@@ -126,8 +127,8 @@ def main() -> None:
         payload,
         depth_arg,
         sort_keys=isinstance(payload, dict),
-        ignore_keys=ignore_keys,
-        current_key=None,
+        fold_paths=fold_paths,
+        current_path=(),
     )
     print(json.dumps(normalized, ensure_ascii=False, indent=2))
 
