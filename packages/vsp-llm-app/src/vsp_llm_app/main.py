@@ -33,6 +33,7 @@ def main(video_path: str, model_path: str, w2v_path: str, llm_path: str):
     OmegaConf.set_struct(structured, False)
 
     # 辞書サイズによってモデルサイズが変わるため、スタブでもファイルの指定が必要
+    # なお、AV-HuBERT は辞書に 4 つの特別トークン（<pad>, <s>, </s>, <unk>）を自動で付け足すことに留意
     label_dir = os.path.join(os.path.dirname(__file__), "labels")
 
     model_cfg: VSPLLMConfig = OmegaConf.merge(
