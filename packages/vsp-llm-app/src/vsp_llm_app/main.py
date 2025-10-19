@@ -1,17 +1,18 @@
 import argparse
 import logging
 import os
-from transformers import AutoTokenizer
+
 from fairseq import checkpoint_utils
 from omegaconf import OmegaConf
-from vsp_llm.vsp_llm import avhubert_llm_seq2seq_cluster_count, VSPLLMConfig
-from vsp_llm.hubert_pretraining import AVHubertPretrainingConfig
+from transformers import AutoTokenizer
+from vsp_llm.vsp_llm import VSPLLMConfig, avhubert_llm_seq2seq_cluster_count
+
 
 def main(video_path: str, model_path: str, w2v_path: str, llm_path: str):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        level=os.environ.get("LOGLEVEL", "INFO").upper()
+        level=os.environ.get("LOGLEVEL", "INFO").upper(),
     )
     tokenizer = AutoTokenizer.from_pretrained(llm_path)
 
@@ -31,16 +32,26 @@ def main(video_path: str, model_path: str, w2v_path: str, llm_path: str):
     structured: VSPLLMConfig = OmegaConf.structured(VSPLLMConfig)
     OmegaConf.set_struct(structured, False)
 
+    # 辞書サイズによってモデルサイズが変わるため、スタブでもファイルの指定が必要
+    label_dir = os.path.join(os.path.dirname(__file__), "labels")
+
     model_cfg: VSPLLMConfig = OmegaConf.merge(
         structured,
         base_cfg.model,
-        {"w2v_path": w2v_path, "llm_ckpt_path": llm_path, "normalize": True, "data": "", "w2v_args": {"task": {"labels": []}}},
+        {
+            "w2v_path": w2v_path,
+            "llm_ckpt_path": llm_path,
+            "normalize": True,
+            "data": "",
+            "w2v_args": {"task": {"labels": ["km"], "label_dir": label_dir}},
+        },
     )
-    model = avhubert_llm_seq2seq_cluster_count.build_model(cfg=model_cfg, task=None)
+    model: avhubert_llm_seq2seq_cluster_count = (
+        avhubert_llm_seq2seq_cluster_count.build_model(cfg=model_cfg, task=None)
+    )
+    LOAD_LORA_WITH_STRICT = False
+    model.load_state_dict(state["model"], strict=LOAD_LORA_WITH_STRICT)
     model.eval()
-
-    print(f"{model}")
-
 
 
 if __name__ == "__main__":
@@ -50,4 +61,9 @@ if __name__ == "__main__":
     parser.add_argument("--w2v-path", required=True)
     parser.add_argument("--llm-path", required=True)
     args = parser.parse_args()
-    main(video_path=args.video_path, model_path=args.model_path, llm_path=args.llm_path, w2v_path=args.w2v_path)
+    main(
+        video_path=args.video_path,
+        model_path=args.model_path,
+        llm_path=args.llm_path,
+        w2v_path=args.w2v_path,
+    )
