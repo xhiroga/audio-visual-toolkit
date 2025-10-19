@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "clustering>=0.1.0",
     "omegaconf>=2.0.6",
     "vsp-llm",
 ]
 
 [tool.uv.sources]
 vsp-llm = { path = "../../../VSP-LLM" } # TOBEFIX
+clustering = { path = "../../../VSP-LLM/packages/clustering" } # TOBEFIX
