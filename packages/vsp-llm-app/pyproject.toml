@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "omegaconf>=2.0.6",
     "vsp-llm",
 ]
 

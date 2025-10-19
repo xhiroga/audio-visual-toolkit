@@ -2493,11 +2493,15 @@ name = "vsp-llm-app"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "omegaconf" },
     { name = "vsp-llm" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vsp-llm", directory = "../../../VSP-LLM" }]
+requires-dist = [
+    { name = "omegaconf", specifier = ">=2.0.6" },
+    { name = "vsp-llm", directory = "../../../VSP-LLM" },
+]
 
 [[package]]
 name = "xxhash"
