@@ -611,7 +611,7 @@ wheels = [
 [[package]]
 name = "clustering"
 version = "0.1.0"
-source = { directory = "../../../VSP-LLM/clustering" }
+source = { git = "https://github.com/xhiroga/VSP-LLM?subdirectory=clustering&rev=packaged#a5d68fd38ee322be106949b13acf43b85235ec38" }
 dependencies = [
     { name = "fairseq" },
     { name = "joblib" },
@@ -621,17 +621,6 @@ dependencies = [
     { name = "submitit" },
     { name = "torchaudio", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "python_full_version < '3.13' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
     { name = "torchaudio", version = "2.5.1+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "python_full_version >= '3.13' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fairseq", editable = "../../../VSP-LLM/fairseq" },
-    { name = "joblib", specifier = ">=1.3.2" },
-    { name = "npy-append-array", specifier = ">=0.9.16" },
-    { name = "scikit-learn", specifier = ">=1.4.0" },
-    { name = "soundfile", specifier = ">=0.13.1" },
-    { name = "submitit", specifier = ">=1.5.3" },
-    { name = "torchaudio", specifier = ">=2.5.1", index = "https://download.pytorch.org/whl/cu124" },
 ]
 
 [[package]]
@@ -930,8 +919,8 @@ wheels = [
 
 [[package]]
 name = "fairseq"
-version = "1.0.0a0+7e1400a"
-source = { editable = "../../../VSP-LLM/fairseq" }
+version = "1.0.0a0+a5d68fd"
+source = { git = "https://github.com/xhiroga/VSP-LLM?subdirectory=fairseq&rev=packaged#a5d68fd38ee322be106949b13acf43b85235ec38" }
 dependencies = [
     { name = "cffi" },
     { name = "cython" },
@@ -942,21 +931,6 @@ dependencies = [
     { name = "sacrebleu" },
     { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "python_full_version < '3.13' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
     { name = "torch", version = "2.5.1+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "python_full_version >= '3.13' or platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
-    { name = "tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cffi" },
-    { name = "cython" },
-    { name = "dataclasses", marker = "python_full_version < '3.7'" },
-    { name = "hydra-core", specifier = "<1.1" },
-    { name = "numpy", marker = "python_full_version < '3.7'", specifier = "<1.20.0" },
-    { name = "numpy", marker = "python_full_version >= '3.7'" },
-    { name = "omegaconf", specifier = "<2.1" },
-    { name = "regex" },
-    { name = "sacrebleu", specifier = ">=1.4.12" },
-    { name = "torch" },
     { name = "tqdm" },
 ]
 
@@ -3887,7 +3861,7 @@ wheels = [
 [[package]]
 name = "vsp-llm"
 version = "0.1.0"
-source = { directory = "../../../VSP-LLM" }
+source = { git = "https://github.com/xhiroga/VSP-LLM?rev=packaged#a5d68fd38ee322be106949b13acf43b85235ec38" }
 dependencies = [
     { name = "bitsandbytes" },
     { name = "cython" },
@@ -3927,44 +3901,6 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "bitsandbytes", specifier = "==0.48.1" },
-    { name = "cython", specifier = "==3.0.8" },
-    { name = "datasets", specifier = "==2.17.0" },
-    { name = "editdistance", specifier = "==0.6.0" },
-    { name = "einops", specifier = "==0.7.0" },
-    { name = "fairseq", editable = "../../../VSP-LLM/fairseq" },
-    { name = "hydra-core", specifier = "==1.0.7" },
-    { name = "importlib-metadata", specifier = "==7.0.1" },
-    { name = "joblib", specifier = "==1.3.2" },
-    { name = "librosa", specifier = "==0.10.1" },
-    { name = "multidict", specifier = "==6.0.5" },
-    { name = "multiprocess", specifier = "==0.70.16" },
-    { name = "npy-append-array", specifier = "==0.9.16" },
-    { name = "numba", specifier = "==0.59.0" },
-    { name = "numpy", specifier = ">=1.26.4" },
-    { name = "oauthlib", specifier = "==3.2.2" },
-    { name = "omegaconf", specifier = "==2.0.6" },
-    { name = "opencv-python", specifier = ">=4.5.4.60" },
-    { name = "packaging", specifier = "==23.2" },
-    { name = "pandas", specifier = "==2.2.0" },
-    { name = "peft", specifier = ">=0.17.1" },
-    { name = "psutil", specifier = "==5.9.8" },
-    { name = "python-dateutil", specifier = "==2.8.2" },
-    { name = "python-speech-features", specifier = "==0.6" },
-    { name = "sacrebleu", specifier = "==2.4.0" },
-    { name = "safetensors", specifier = "==0.4.2" },
-    { name = "scikit-learn", specifier = "==1.4.0" },
-    { name = "scipy", specifier = "==1.10.0" },
-    { name = "sentencepiece", specifier = "==0.1.96" },
-    { name = "torch", specifier = ">=2.5.1", index = "https://download.pytorch.org/whl/cu124" },
-    { name = "torchaudio", specifier = ">=2.5.1", index = "https://download.pytorch.org/whl/cu124" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "transformers", specifier = ">=4.49.0" },
-    { name = "typing-extensions", specifier = "==4.9.0" },
-]
-
 [[package]]
 name = "vsp-llm-app"
 version = "0.1.0"
@@ -3984,7 +3920,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "clustering", directory = "../../../VSP-LLM/clustering" },
+    { name = "clustering", git = "https://github.com/xhiroga/VSP-LLM?subdirectory=clustering&rev=packaged" },
     { name = "gradio", specifier = ">=5.49.1" },
     { name = "mediapipe", specifier = ">=0.10.21" },
     { name = "numpy", specifier = ">=1.26.4" },
@@ -3992,7 +3928,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "torch", specifier = ">=2.5.1", index = "https://download.pytorch.org/whl/cu124" },
     { name = "transformers", specifier = ">=4.49.0" },
-    { name = "vsp-llm", directory = "../../../VSP-LLM" },
+    { name = "vsp-llm", git = "https://github.com/xhiroga/VSP-LLM?rev=packaged" },
 ]
 
 [[package]]
