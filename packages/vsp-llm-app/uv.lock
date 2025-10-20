@@ -412,7 +412,7 @@ wheels = [
 [[package]]
 name = "clustering"
 version = "0.1.0"
-source = { directory = "../../../VSP-LLM/packages/clustering" }
+source = { directory = "../../../VSP-LLM/clustering" }
 dependencies = [
     { name = "joblib" },
     { name = "npy-append-array" },
@@ -2546,7 +2546,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "clustering", directory = "../../../VSP-LLM/packages/clustering" },
+    { name = "clustering", directory = "../../../VSP-LLM/clustering" },
     { name = "omegaconf", specifier = ">=2.0.6" },
     { name = "vsp-llm", directory = "../../../VSP-LLM" },
 ]

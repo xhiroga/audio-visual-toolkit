@@ -8,13 +8,12 @@ nshard ?= 1
 rank ?= 0
 feat_dir ?= av_feat
 # 公開されている checkpoint を利用する場合
-cluster ?= 10
+cluster ?= 2000
 feat_path ?= ${feat_dir}/${split}_${rank}_${nshard}.npy
 leng_path ?= ${feat_dir}/${split}_${rank}_${nshard}.len
 km_path ?= ${feat_dir}/new/${cluster}.km
 # データのうち k-means 学習に使用する割合。今回はtestデータを用いるため、元々の件数が少ない。よって1.0とした。
-# debug 0.05
-percent ?= 0.05
+percent ?= 1.0
 
 ${feat_path} ${leng_path}:
 	uv run -m clustering.dump_hubert_feature ${TSV_DIR} ${split} ${W2V_PATH} 12 ${nshard} ${rank} ${feat_dir}

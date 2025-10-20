@@ -12,4 +12,4 @@ dependencies = [
 
 [tool.uv.sources]
 vsp-llm = { path = "../../../VSP-LLM" } # TOBEFIX
-clustering = { path = "../../../VSP-LLM/packages/clustering" } # TOBEFIX
+clustering = { path = "../../../VSP-LLM/clustering" } # TOBEFIX
