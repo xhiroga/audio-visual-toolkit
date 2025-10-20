@@ -30,6 +30,14 @@ ${lab_path}: ${feat_path} ${leng_path} ${km_path}
 ${cluster_counts_path}: ${lab_path}
 	uv run -m clustering.cluster_counts ${lab_path}
 
+webui:
+	uv run src/vsp_llm_app/webui.py \
+		--w2v-path ${W2V_PATH} \
+		--km-path ${km_path} \
+		--model-path ${MODEL_PATH} \
+		--llm-path ${LLM_PATH} \
+		--port 17860
+
 main:
 	uv run src/vsp_llm_app/main.py \
 		--video-path ${VIDEO_PATH} \
