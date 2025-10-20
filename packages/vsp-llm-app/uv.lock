@@ -536,7 +536,7 @@ wheels = [
 
 [[package]]
 name = "fairseq"
-version = "1.0.0a0+50372b2"
+version = "1.0.0a0+51e815f"
 source = { editable = "../../../VSP-LLM/fairseq" }
 dependencies = [
     { name = "cffi" },
