@@ -8,7 +8,7 @@ nshard ?= 1
 rank ?= 0
 feat_dir ?= av_feat
 # 公開されている checkpoint を利用する場合
-cluster ?= 2000
+cluster ?= 200
 feat_path ?= ${feat_dir}/${split}_${rank}_${nshard}.npy
 leng_path ?= ${feat_dir}/${split}_${rank}_${nshard}.len
 km_path ?= ${feat_dir}/new/${cluster}.km
@@ -33,6 +33,7 @@ ${cluster_counts_path}: ${lab_path}
 main:
 	uv run src/vsp_llm_app/main.py \
 		--video-path ${VIDEO_PATH} \
-		--model-path ${MODEL_PATH} \
 		--w2v-path ${W2V_PATH} \
+		--km-path ${km_path} \
+		--model-path ${MODEL_PATH} \
 		--llm-path ${LLM_PATH}
