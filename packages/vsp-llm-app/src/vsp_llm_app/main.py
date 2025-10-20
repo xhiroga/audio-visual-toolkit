@@ -1,8 +1,11 @@
 import argparse
 import logging
 import os
-from typing import List, TypedDict
+from pathlib import Path
+from typing import List, Optional, TypedDict
 
+import cv2
+import mediapipe as mp
 import numpy as np
 import torch
 from clustering.dump_hubert_feature import HubertFeatureReader
@@ -44,8 +47,188 @@ def _move_to_device(sample, device: torch.device):
     return sample
 
 
-def preprocess_video(
-    video_path: str,
+def load_video_file(video_path: str) -> np.ndarray:
+    """Load a video file as grayscale frames."""
+
+    frames = utils_vsp_llm.load_video(video_path)
+    if frames.size == 0:
+        raise ValueError(f"動画フレームを取得できませんでした: {video_path}")
+    return frames.astype(np.float32)
+
+
+def crop_mouth(video: np.ndarray, crop_size: Optional[int] = None) -> np.ndarray:
+    """Mediapipe を用いて顔下半分を中心としたクロップを行う。"""
+
+    if video.ndim != 3:
+        raise ValueError("crop_mouth expects (frames, height, width) input")
+
+    num_frames, height, width = video.shape
+    if num_frames == 0:
+        return video
+
+    mp_face_mesh = mp.solutions.face_mesh
+    lip_indices = sorted({idx for c in mp_face_mesh.FACEMESH_LIPS for idx in c})
+    oval_indices = sorted({idx for c in mp_face_mesh.FACEMESH_FACE_OVAL for idx in c})
+    NOSE_BRIDGE_INDEX = 1
+
+    centers: list[tuple[float, float]] = []
+    target_size: Optional[float] = float(crop_size) if crop_size is not None else None
+    last_center = (width / 2.0, height / 2.0)
+
+    with mp_face_mesh.FaceMesh(
+        static_image_mode=False,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    ) as face_mesh:
+        for frame in video:
+            frame_uint8 = np.clip(frame, 0, 255).astype(np.uint8)
+            frame_rgb = cv2.cvtColor(frame_uint8, cv2.COLOR_GRAY2RGB)
+            results = face_mesh.process(frame_rgb)
+
+            center = last_center
+            suggested_size: Optional[float] = None
+
+            if results.multi_face_landmarks:
+                landmark = results.multi_face_landmarks[0].landmark
+
+                xs = [landmark[idx].x * width for idx in oval_indices]
+                ys = [landmark[idx].y * height for idx in oval_indices]
+
+                if xs and ys:
+                    x_min, x_max = min(xs), max(xs)
+                    y_min, y_max = min(ys), max(ys)
+                    face_width = max(x_max - x_min, 1.0)
+                    face_height = max(y_max - y_min, 1.0)
+
+                    mouth_ys = [landmark[idx].y * height for idx in lip_indices]
+                    mouth_center_y = (
+                        float(np.mean(mouth_ys))
+                        if mouth_ys
+                        else y_min + face_height * 0.65
+                    )
+
+                    nose_y = (
+                        landmark[NOSE_BRIDGE_INDEX].y * height
+                        if NOSE_BRIDGE_INDEX < len(landmark)
+                        else y_min + face_height * 0.45
+                    )
+
+                    lower_top = max(
+                        min(nose_y, mouth_center_y) - face_height * 0.05, y_min
+                    )
+                    lower_bottom = min(y_max + face_height * 0.05, height)
+                    lower_height = max(lower_bottom - lower_top, face_height * 0.5)
+
+                    center_x = (x_min + x_max) / 2.0
+                    center_y = lower_top + lower_height * 0.6
+
+                    center = (center_x, center_y)
+                    suggested_size = max(lower_height * 1.05, face_width * 1.05)
+
+            if suggested_size is not None:
+                if target_size is None:
+                    target_size = suggested_size
+                else:
+                    target_size = 0.8 * target_size + 0.2 * suggested_size
+
+            centers.append(center)
+            last_center = center
+
+    if target_size is None:
+        if crop_size is None:
+            _, height, width = video.shape
+            crop_size = min(height, width)
+        cropper = utils_vsp_llm.CenterCrop((int(crop_size), int(crop_size)))
+        return cropper(video)
+
+    target_size = float(np.clip(target_size, 1.0, float(min(height, width))))
+    size_int = max(1, int(round(target_size)))
+
+    cropped = np.zeros((num_frames, size_int, size_int), dtype=video.dtype)
+
+    half = size_int / 2.0
+    for idx, frame in enumerate(video):
+        cx, cy = centers[idx]
+        cx = (
+            float(np.clip(cx, half, width - half)) if width >= size_int else width / 2.0
+        )
+        cy = (
+            float(np.clip(cy, half, height - half))
+            if height >= size_int
+            else height / 2.0
+        )
+
+        x1 = int(round(cx - half))
+        y1 = int(round(cy - half))
+        x1 = max(0, min(width - size_int, x1))
+        y1 = max(0, min(height - size_int, y1))
+        x2 = x1 + size_int
+        y2 = y1 + size_int
+
+        crop = frame[y1:y2, x1:x2]
+        if crop.shape != (size_int, size_int):
+            padded = np.zeros((size_int, size_int), dtype=frame.dtype)
+            padded[: crop.shape[0], : crop.shape[1]] = crop
+            crop = padded
+
+        cropped[idx] = crop
+
+    return cropped
+
+
+def _resolve_fps(video_path: str, default: float = 25.0) -> float:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return default
+    fps = cap.get(cv2.CAP_PROP_FPS) or default
+    cap.release()
+    if fps is None or fps <= 1e-3 or np.isnan(fps):
+        return default
+    return float(fps)
+
+
+def _store_temp_video(
+    *,
+    frames: np.ndarray,
+    source_path: str,
+    temp_dir: Path,
+) -> Path:
+    """Persist processed frames to a temporary MP4 under the provided directory."""
+
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    basename = Path(source_path).stem
+    output_path = temp_dir / f"{basename}_cropped.mp4"
+
+    frames_uint8 = np.clip(frames, 0, 255).astype(np.uint8)
+    if frames_uint8.ndim != 3:
+        raise ValueError(
+            "_store_temp_video expects frames shaped (frames, height, width)"
+        )
+
+    frame_count, height, width = frames_uint8.shape
+    fps = _resolve_fps(source_path)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height), True)
+    if not writer.isOpened():
+        raise RuntimeError(f"一時動画ファイルを書き出せませんでした: {output_path}")
+
+    try:
+        for idx in range(frame_count):
+            gray_frame = frames_uint8[idx]
+            bgr_frame = cv2.cvtColor(gray_frame, cv2.COLOR_GRAY2BGR)
+            writer.write(bgr_frame)
+    finally:
+        writer.release()
+
+    logging.info("Stored temporary video at %s", output_path)
+    return output_path
+
+
+def build_net_input_from_video(
+    video: np.ndarray,
     w2v_path: str,
     km_path: str,
     tokenizer: AutoTokenizer,
@@ -57,9 +240,11 @@ def preprocess_video(
         custom_utils=utils_vsp_llm,
     )
 
-    video_frames = reader.load_image(video_path)
-    if video_frames.size == 0:
-        raise ValueError(f"動画フレームを取得できませんでした: {video_path}")
+    if video.size == 0:
+        raise ValueError("動画フレームを取得できませんでした。入力が空です。")
+
+    transformed = reader.transform(video)
+    video_frames = np.expand_dims(transformed, axis=-1)
 
     num_frames = video_frames.shape[0]
     print(f"{reader.task=}")
@@ -141,7 +326,15 @@ def preprocess_video(
     }
 
 
-def main(video_path: str, w2v_path: str, km_path: str, model_path: str, llm_path: str):
+def main(
+    video_path: str,
+    w2v_path: str,
+    km_path: str,
+    model_path: str,
+    llm_path: str,
+    crop: bool,
+    temp_dir: str | None,
+):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -151,8 +344,18 @@ def main(video_path: str, w2v_path: str, km_path: str, model_path: str, llm_path
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(llm_path)
-    net_input: NetInput = preprocess_video(
-        video_path=video_path,
+    video_frames = load_video_file(video_path)
+    if crop:
+        video_frames = crop_mouth(video_frames)
+    if temp_dir is not None:
+        _store_temp_video(
+            frames=video_frames,
+            source_path=video_path,
+            temp_dir=Path(temp_dir),
+        )
+
+    net_input: NetInput = build_net_input_from_video(
+        video=video_frames,
         w2v_path=w2v_path,
         km_path=km_path,
         tokenizer=tokenizer,
@@ -216,6 +419,18 @@ if __name__ == "__main__":
     parser.add_argument("--km-path", required=True)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--llm-path", required=True)
+    parser.add_argument(
+        "--crop",
+        action="store_true",
+        default=False,
+        help="Enable mouth cropping prior to feature extraction.",
+    )
+    parser.add_argument(
+        "--temp-dir",
+        type=str,
+        default=None,
+        help="If set, save the processed grayscale video to this directory.",
+    )
     args = parser.parse_args()
     main(
         video_path=args.video_path,
@@ -223,4 +438,6 @@ if __name__ == "__main__":
         km_path=args.km_path,
         model_path=args.model_path,
         llm_path=args.llm_path,
+        crop=args.crop,
+        temp_dir=args.temp_dir,
     )
