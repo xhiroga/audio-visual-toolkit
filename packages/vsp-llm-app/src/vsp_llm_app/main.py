@@ -203,6 +203,9 @@ def main(video_path: str, w2v_path: str, km_path: str, model_path: str, llm_path
         net_input["source"]["video"] = net_input["source"]["video"].to(torch.half)
 
     best_hypo = model.generate(**net_input)
+    best_hypo = tokenizer.batch_decode(
+        best_hypo, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
     print(f"{best_hypo=}")
 
 
